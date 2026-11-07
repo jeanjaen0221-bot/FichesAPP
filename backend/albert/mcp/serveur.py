@@ -232,6 +232,16 @@ def fiche_modifier(fiche_id: str, version: int, changements: dict) -> dict:
 
 
 @serveur.tool(annotations=ECRITURE)
+def fiche_statut_changer(fiche_id: str, version: int, statut: str, preuve: Optional[str] = None) -> dict:
+    """Changer le statut d'une fiche. Permis : brouillon → confirmee (réservation prouvée ; « preuve » obligatoire,
+    ex. « e-mail de la cliente du 05/11 » ou « Zenchef ») ; confirmee → finale (menus, quantités et infos validés
+    pour la cuisine, seulement après validation explicite de l'équipe) ; finale → confirmee (rouvrir pour modifier).
+    Une réservation se confirme même sans plats choisis. « realisee » se fait dans l'outil ; annuler : fiche_annuler."""
+    return executer("fiches:ecrire",
+                    lambda s, a: _fiche(s, fiches.changer_statut(s, a, fiche_id, statut, version, preuve), []))
+
+
+@serveur.tool(annotations=ECRITURE)
 def fiche_ligne_ajouter(fiche_id: str, version: int, type: str, libelle: str, quantite: int,
                         commentaire: Optional[str] = None) -> dict:
     """Ajouter un plat ou un supplément ; si la même ligne existe, sa quantité est remplacée."""

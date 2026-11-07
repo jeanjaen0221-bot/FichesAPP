@@ -94,7 +94,8 @@ Tests : `cd backend && python -m pytest` · Vérification du site : `cd frontend
 4. Les consignes données à ChatGPT sont dans `backend/albert/mcp/consignes.txt` (envoyées automatiquement par le connecteur).
 
 ChatGPT ne peut **jamais** : valider ou transmettre un devis ou un bon, toucher aux prix ou aux formules, supprimer quoi que ce soit,
-changer le statut d'une fiche (sauf annulation en deux temps, avec confirmation), écrire au client. Ces refus sont appliqués
+passer une fiche en « réalisée » ou la confirmer sans preuve (il peut confirmer avec preuve, finaliser après validation
+et rouvrir une fiche finale ; l'annulation se fait en deux temps, avec confirmation), écrire au client. Ces refus sont appliqués
 par le serveur, pas seulement par les consignes. Chaque action de ChatGPT apparaît dans le journal et l'historique de la fiche.
 
 ## Reprendre les données de l'ancienne version

@@ -147,14 +147,16 @@ def test_fiche_figee(session, acteur_admin, acteur_chatgpt):
         fiches.modifier(session, acteur_chatgpt, fiche.id, {"couverts": 5})
     assert e.value.code == "interdit"
     with pytest.raises(ErreurMetier):
-        fiches.changer_statut(session, acteur_chatgpt, fiche.id, "confirmee")
+        fiches.changer_statut(session, acteur_chatgpt, fiche.id, "realisee")
 
 
-def test_confirmer_demande_un_repas(session, acteur_admin):
+def test_confirmer_sans_plats_mais_finaliser_demande_un_repas(session, acteur_admin):
+    # Une réservation prouvée se confirme avant le choix des plats ; la fiche finale, non.
     fiche, alertes = creer_fiche(session, acteur_admin)
     assert any("Ni formule" in a for a in alertes)
-    with pytest.raises(ErreurMetier):
-        fiches.changer_statut(session, acteur_admin, fiche.id, "confirmee")
+    fiches.changer_statut(session, acteur_admin, fiche.id, "confirmee")
+    with pytest.raises(ErreurMetier, match="finaliser"):
+        fiches.changer_statut(session, acteur_admin, fiche.id, "finale")
 
 
 def test_ajout_et_retrait_d_une_ligne(session, acteur_admin):

@@ -115,7 +115,7 @@ def appliquer_regles_fiche(couverts: int, formule_repas: Any, lignes: list[Ligne
         elif formule_repas.comportement == "carte" and not plats:
             alertes.append("À la carte sans plats : le repas n'apparaîtra pas au devis tant que les plats ne sont pas indiqués.")
     if formule_repas is None and not plats:
-        alertes.append("Ni formule repas ni plats : à compléter avant de confirmer la fiche.")
+        alertes.append("Ni formule repas ni plats : à compléter avant de finaliser la fiche.")
     return formule_repas, alertes
 
 

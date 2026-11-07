@@ -64,8 +64,25 @@ export function messageErreur(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-export function ouvrirPdf(chemin: string) {
-  window.open(chemin, '_blank', 'noopener')
+// Le PDF est d'abord téléchargé : en cas d'échec, l'équipe voit le motif au lieu d'un onglet
+// avec du JSON (ou de rien du tout si le navigateur bloque la fenêtre). L'onglet est ouvert
+// pendant le clic, sinon le bloqueur de fenêtres l'empêcherait après l'attente.
+export async function ouvrirPdf(chemin: string) {
+  const onglet = window.open('', '_blank')
+  try {
+    const reponse = await fetch(chemin, { credentials: 'same-origin', headers: { 'X-Albert': '1' } })
+    if (!reponse.ok) {
+      const donnees = await reponse.json().catch(() => null)
+      throw new Echec(reponse.status, donnees?.erreur ?? { code: 'erreur_serveur', message: 'Erreur inattendue.' })
+    }
+    const url = URL.createObjectURL(await reponse.blob())
+    if (onglet) onglet.location.href = url
+    else window.location.href = url
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (e) {
+    onglet?.close()
+    window.alert(`PDF impossible à ouvrir : ${messageErreur(e)}`)
+  }
 }
 
 export const formatDate = (iso?: string | null) => {

@@ -174,6 +174,30 @@ def _produit_pour_ligne(session: Session, type_ligne: str, nom: str, produit_id:
     return None
 
 
+# Un champ inconnu est refusé : ignoré, il laissait croire à une modification réussie
+# (ancienne version : « status » envoyé par ChatGPT, jamais enregistré).
+CHAMPS_FICHE = frozenset({
+    "client_id", "date", "heure", "couverts", "espace", "allergenes", "notes_salle", "notes_cuisine",
+    "contact_sur_place", "telephone_sur_place", "formule_repas", "formule_repas_id", "formule_boissons",
+    "formule_boissons_id", "privatisation", "privatisation_id", "lignes", "garder_supplements", "cle_idempotence",
+})
+CHAMPS_LIGNE = frozenset({"type", "libelle", "nom", "quantite", "commentaire", "produit_id"})
+
+
+def _verifier_champs(donnees: dict[str, Any]) -> None:
+    if "statut" in donnees:
+        raise ErreurMetier("regle_metier", "Le statut se change avec l'action dédiée.", champ="statut")
+    inconnus = sorted(set(donnees) - CHAMPS_FICHE)
+    if inconnus:
+        raise ErreurMetier("valeur_non_permise", f"Champ(s) inconnu(s) : {', '.join(inconnus)}. Rien n'a été modifié.",
+                           champ=inconnus[0], valeurs_permises=sorted(CHAMPS_FICHE))
+    for brute in donnees.get("lignes") or []:
+        inconnus = sorted(set(brute or {}) - CHAMPS_LIGNE)
+        if inconnus:
+            raise ErreurMetier("valeur_non_permise", f"Champ(s) de ligne inconnu(s) : {', '.join(inconnus)}.",
+                               champ="lignes", valeurs_permises=sorted(CHAMPS_LIGNE))
+
+
 def _lire_lignes(session: Session, brutes: list[dict[str, Any]]) -> list[_Ligne]:
     lignes: list[_Ligne] = []
     for brute in brutes:
@@ -210,7 +234,8 @@ def _choisir_formules(session: Session, donnees: dict[str, Any], fiche: Optional
     return v
 
 
-def _appliquer(session: Session, fiche: Fiche, donnees: dict[str, Any], nouvelle: bool) -> list[str]:
+def _appliquer(session: Session, fiche: Fiche, donnees: dict[str, Any], nouvelle: bool,
+               strict: bool = False) -> list[str]:
     if "client_id" in donnees or nouvelle:
         if not donnees.get("client_id"):
             raise ErreurMetier("champ_obligatoire", "Le client est obligatoire (le chercher ou le créer d'abord).",
@@ -251,7 +276,16 @@ def _appliquer(session: Session, fiche: Fiche, donnees: dict[str, Any], nouvelle
     else:
         nouvelles = [_Ligne(l.type, l.libelle, l.quantite, l.commentaire, l.produit) for l in fiche.lignes]
 
+    demandee = formules.get("formule_repas")
     formule_repas, alertes = appliquer_regles_fiche(fiche.couverts, formule_repas, nouvelles)
+    if strict and demandee is not None and formule_repas is None:
+        # Pour ChatGPT : refuser plutôt que d'effacer en silence la formule qu'il croit avoir enregistrée.
+        raise ErreurMetier(
+            "regle_metier",
+            f"La formule « {demandee.nom} » n'est pas enregistrée à côté de plats : les plats prévalent. "
+            "Laisser la formule vide (les plats suffisent), ou retirer les plats d'abord.",
+            champ="formule_repas",
+        )
     fiche.formule_repas = formule_repas
     if "lignes" in donnees:
         fiche.lignes.clear()
@@ -311,6 +345,7 @@ def _limites_chatgpt(acteur: Acteur, donnees: dict[str, Any], fiche: Optional[Fi
 
 def creer(session: Session, acteur: Acteur, donnees: dict[str, Any]) -> tuple[Fiche, list[str]]:
     acteur.exiger("fiches")
+    _verifier_champs(donnees)
     _limites_chatgpt(acteur, donnees)
     cle_idem = texte_court(donnees.get("cle_idempotence"), "cle_idempotence", 100)
     if cle_idem:
@@ -321,7 +356,7 @@ def creer(session: Session, acteur: Acteur, donnees: dict[str, Any]) -> tuple[Fi
     # La fiche n'entre dans la session qu'une fois complète : sinon une requête de
     # recherche (client, formule…) déclencherait l'écriture d'une fiche à moitié remplie.
     with session.no_autoflush:
-        alertes = _appliquer(session, fiche, donnees, nouvelle=True)
+        alertes = _appliquer(session, fiche, donnees, nouvelle=True, strict=acteur.est_chatgpt)
     session.add(fiche)
     session.flush()
     session.refresh(fiche)
@@ -335,14 +370,13 @@ def creer(session: Session, acteur: Acteur, donnees: dict[str, Any]) -> tuple[Fi
 def modifier(session: Session, acteur: Acteur, fiche_id: Any, donnees: dict[str, Any],
              version: Optional[int] = None) -> tuple[Fiche, list[str]]:
     acteur.exiger("fiches")
+    _verifier_champs(donnees)
     fiche = _charger(session, fiche_id)
     _limites_chatgpt(acteur, donnees, fiche)
     verifier_version(fiche, version, "La fiche")
     _verifier_modifiable(acteur, fiche)
-    if "statut" in donnees:
-        raise ErreurMetier("regle_metier", "Le statut se change avec l'action dédiée.", champ="statut")
     avant = fiche_dict(session, fiche, complet=False)
-    alertes = _appliquer(session, fiche, donnees, nouvelle=False)
+    alertes = _appliquer(session, fiche, donnees, nouvelle=False, strict=acteur.est_chatgpt)
     fiche.version += 1
     fiche.dernier_pdf_le = None  # à réimprimer
     session.flush()
@@ -387,17 +421,30 @@ def retirer_ligne(session: Session, acteur: Acteur, fiche_id: Any, type_ligne: s
     return modifier(session, acteur, fiche_id, {"lignes": lignes}, version)
 
 
+# Deux étapes à ne pas confondre : « confirmée » = la réservation est prouvée (e-mail,
+# Zenchef), même si les plats ne sont pas encore choisis ; « finale » = menus,
+# quantités et infos validés pour la cuisine. ChatGPT peut confirmer (avec la preuve),
+# finaliser après validation et rouvrir une fiche finale ; pas « réalisée », et
+# l'annulation passe par son action en deux temps.
+TRANSITIONS_CHATGPT = {("brouillon", "confirmee"), ("confirmee", "finale"), ("finale", "confirmee")}
+
+
 def changer_statut(session: Session, acteur: Acteur, fiche_id: Any, cible: str,
                    version: Optional[int] = None, motif: Optional[str] = None) -> Fiche:
     acteur.exiger("fiches")
-    if acteur.est_chatgpt:
-        raise ErreurMetier("interdit", "Le statut d'une fiche se change dans l'outil, par l'équipe "
-                                       "(pour annuler, utiliser l'annulation en deux temps).")
     fiche = _charger(session, fiche_id)
     verifier_version(fiche, version, "La fiche")
     verifier_transition(fiche.statut, cible)
-    if cible == "confirmee" and fiche.statut == "brouillon" and not peut_confirmer(fiche.formule_repas, list(fiche.lignes)):
-        raise ErreurMetier("regle_metier", "Pour confirmer, indiquer une formule repas ou au moins un plat.",
+    if acteur.est_chatgpt:
+        if (fiche.statut, cible) not in TRANSITIONS_CHATGPT:
+            raise ErreurMetier("interdit", f"ChatGPT ne passe pas une fiche de « {LIBELLES_STATUTS_FICHE[fiche.statut]} » "
+                                           f"à « {LIBELLES_STATUTS_FICHE[cible]} » : cela se fait dans l'outil "
+                                           "(pour annuler, utiliser l'annulation en deux temps).")
+        if cible == "confirmee" and fiche.statut == "brouillon":
+            motif = texte_court(motif, "preuve", 300, obligatoire=True)
+    if cible == "finale" and not peut_confirmer(fiche.formule_repas, list(fiche.lignes)):
+        raise ErreurMetier("regle_metier", "Pour finaliser, indiquer une formule repas ou au moins un plat : "
+                                           "une réservation peut être confirmée avant, pas finalisée.",
                            champ="formule_repas")
     if cible == "annulee":
         fiche.motif_annulation = texte_court(motif, "motif", 500, obligatoire=True)
@@ -405,8 +452,9 @@ def changer_statut(session: Session, acteur: Acteur, fiche_id: Any, cible: str,
     fiche.statut = cible
     fiche.version += 1
     journaliser(session, acteur, "fiche.statut", "fiche", fiche.id,
-                f"{fiche.client.nom} : {LIBELLES_STATUTS_FICHE[avant]} → {LIBELLES_STATUTS_FICHE[cible]}",
-                {"statut": avant}, {"statut": cible, "motif": fiche.motif_annulation})
+                f"{fiche.client.nom} : {LIBELLES_STATUTS_FICHE[avant]} → {LIBELLES_STATUTS_FICHE[cible]}"
+                + (f" — preuve : {motif}" if motif and cible != "annulee" else ""),
+                {"statut": avant}, {"statut": cible, "motif": fiche.motif_annulation if cible == "annulee" else motif})
     session.commit()
     return fiche
 
