@@ -269,8 +269,49 @@ def _verifier_modifiable(acteur: Acteur, fiche: Fiche) -> None:
         raise ErreurMetier("interdit", message)
 
 
+# Ce que ChatGPT écrit est imprimé sur la fiche : une répartition racontée dans un
+# commentaire ou tout un dossier dans les notes (source Gmail, prix, historique)
+# rendait les fiches illisibles et ajoutait des pages. Le site n'est pas limité.
+CHATGPT_COMMENTAIRE_MAX = 80
+CHATGPT_NOTES_MAX = 600
+
+
+def _limites_chatgpt(acteur: Acteur, donnees: dict[str, Any], fiche: Optional[Fiche] = None) -> None:
+    """Ne contrôle que ce que ChatGPT écrit : les lignes et notes déjà sur la fiche (souvent
+    saisies sur le site) sont renvoyées telles quelles quand il ajoute une ligne."""
+    if not acteur.est_chatgpt:
+        return
+    deja = {(l.commentaire or "").strip() for l in fiche.lignes} if fiche is not None else set()
+    for ligne in donnees.get("lignes") or []:
+        commentaire = str((ligne or {}).get("commentaire") or "").strip()
+        if commentaire in deja:
+            continue
+        if len(commentaire) > CHATGPT_COMMENTAIRE_MAX or "\n" in commentaire:
+            raise ErreurMetier(
+                "regle_metier",
+                f"Commentaire trop long ({len(commentaire)} caractères, max {CHATGPT_COMMENTAIRE_MAX}, une ligne). "
+                "Chaque variante va sur sa propre ligne avec sa quantité : « <libellé exact> — <ajustement> » "
+                "ou « Alternative <régime> (à valider) ». Le commentaire ne garde qu'une précision que le "
+                "libellé ne dit pas ; jamais « standard » ni « à valider par la cuisine ».",
+                champ="commentaire",
+            )
+    for champ in ("notes_salle", "notes_cuisine"):
+        notes = str(donnees.get(champ) or "").strip()
+        if fiche is not None and notes == (getattr(fiche, champ) or "").strip():
+            continue
+        if len(notes) > CHATGPT_NOTES_MAX:
+            raise ErreurMetier(
+                "regle_metier",
+                f"Notes trop longues ({len(notes)} caractères, max {CHATGPT_NOTES_MAX}) : elles sont imprimées "
+                "sur la fiche. Garder ce qui sert le jour du service ; retirer la source Gmail, l'historique, "
+                "les prix, les explications et ce que la fiche montre déjà (plats, quantités, boissons, allergènes).",
+                champ=champ,
+            )
+
+
 def creer(session: Session, acteur: Acteur, donnees: dict[str, Any]) -> tuple[Fiche, list[str]]:
     acteur.exiger("fiches")
+    _limites_chatgpt(acteur, donnees)
     cle_idem = texte_court(donnees.get("cle_idempotence"), "cle_idempotence", 100)
     if cle_idem:
         existante = session.scalars(select(Fiche).where(Fiche.cle_idempotence == cle_idem)).first()
@@ -295,6 +336,7 @@ def modifier(session: Session, acteur: Acteur, fiche_id: Any, donnees: dict[str,
              version: Optional[int] = None) -> tuple[Fiche, list[str]]:
     acteur.exiger("fiches")
     fiche = _charger(session, fiche_id)
+    _limites_chatgpt(acteur, donnees, fiche)
     verifier_version(fiche, version, "La fiche")
     _verifier_modifiable(acteur, fiche)
     if "statut" in donnees:

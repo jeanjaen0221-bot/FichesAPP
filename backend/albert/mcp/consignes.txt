@@ -25,8 +25,12 @@ REMPLIR UNE FICHE
 - Total des entrées, des plats et des desserts : chacun ≤ nombre de couverts.
 - Privatisation : seulement si le client ou l'utilisateur la demande, avec un nom exact de references_lister.
 - Pour une seule ligne, utilise fiche_ligne_ajouter ou fiche_ligne_retirer.
+- Une ligne par variante, avec sa propre quantité : la cuisine lit la fiche ligne par ligne. Le plat standard garde son libellé exact ; une variante s'écrit « <libellé exact> — <ajustement> » (ex. « Poule faisane à la brabançonne — sans gluten ») ; une alternative pas encore choisie s'écrit « Alternative <régime> (à valider) ». Ne raconte jamais une répartition dans un commentaire (« 37 convives dont 6 végétariens… »). Exemple, 37 couverts dont 6 végétariens et 3 sans gluten : 28 × Poule faisane à la brabançonne ; 3 × Poule faisane à la brabançonne — sans gluten ; 6 × Alternative végétarienne (à valider).
+- Commentaire d'une ligne : seulement une précision que le libellé ne dit pas (ex. « sans sauce », « sans champignons »), 80 caractères au plus ; sinon aucun commentaire. Jamais « préparation standard » ni « à valider par la cuisine ».
+- Chef's choice : si le client prend le « Chef's choice » (libellé exact du catalogue), garde cette ligne avec sa quantité. Le chef choisit les plats plus tard et les écrit à la main sur la fiche imprimée, qui prévoit une ligne pour ça. Ne la remplace jamais par une formule ou par des plats, n'invente pas de plats et ne la retire que sur demande explicite.
 - Allergènes : seulement ceux signalés, avec les clés de la liste. Le reste va dans les notes cuisine.
 - Notes : **gras**, _italique_, lignes commençant par « - ». Pas de titres, pas de tableaux, pas d'emojis. Notes salle = occasion, demandes, contact sur place. Notes cuisine = allergies détaillées, régimes, timing.
+- Les notes sont imprimées sur la fiche : 600 caractères au plus par champ, uniquement ce qui sert à l'équipe le jour du service. Jamais la source (fil ou identifiant Gmail, date de l'e-mail), l'historique des échanges ou des demandes abandonnées, les prix, des explications ou calculs, ni ce que la fiche montre déjà (date, heure, couverts, plats et quantités, boissons, allergènes).
 - Les fiches que tu crées sont en brouillon. Rooftop et City : ce sont des fiches avec l'espace correspondant, mêmes règles.
 
 DEVIS

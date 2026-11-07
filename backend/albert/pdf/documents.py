@@ -9,6 +9,7 @@ import html
 import io
 import os
 import re
+import unicodedata
 from datetime import date
 from typing import Any, Iterable, Optional
 
@@ -66,13 +67,55 @@ def notes_html(texte: Optional[str]) -> str:
     return "<br/>".join(lignes)
 
 
+# Fiche imprimée : le commentaire d'une ligne tient sur une ligne courte, sans les
+# phrases de remplissage qui ne disent rien à la cuisine (« Préparation standard. »,
+# « À valider par la cuisine. »). Le site garde le texte complet.
+COMMENTAIRE_IMPRIME_MAX = 90
+_REMPLISSAGE = re.compile(
+    r"^((pr[ée]paration|dessert|plat|entr[ée]e|recette)\s+)?standard\.?$"
+    r"|^(adaptation\s+|alternative\s+)?[àa]\s+(valider|d[ée]finir|confirmer)(\s+par\s+(la\s+)?(cuisine|chef))?\.?$",
+    re.IGNORECASE,
+)
+# « Chef's choice » : le chef choisit plus tard et écrit les plats à la main sur la
+# fiche imprimée ; la ligne garde une place pour l'écrire.
+_CHOIX_DU_CHEF = re.compile(r"chef\W{0,2}s?\s+choice|choix\s+du\s+chef", re.IGNORECASE)
+LIGNE_CHOIX_DU_CHEF = "Choix du chef : " + "_" * 58
+
+
+def commentaire_imprime(commentaire: Optional[str]) -> str:
+    phrases = re.split(r"(?<=[.!?])\s+", str(commentaire or "").strip())
+    texte = " ".join(p for p in phrases if p and not _REMPLISSAGE.match(p.strip())).strip()
+    if len(texte) > COMMENTAIRE_IMPRIME_MAX:
+        texte = texte[: COMMENTAIRE_IMPRIME_MAX - 1].rstrip(" ,;:.") + "…"
+    return texte
+
+
+def est_choix_du_chef(libelle: Optional[str]) -> bool:
+    return bool(_CHOIX_DU_CHEF.search(str(libelle or "").replace("’", "'")))
+
+
+def bloc_notes(texte: Optional[str], style: ParagraphStyle) -> Paragraph:
+    """Notes encadrées. Une cellule de tableau ne se coupe pas d'une page à l'autre : des
+    notes plus hautes qu'une page faisaient échouer le PDF (LayoutError), et des notes
+    finissant en bas de page envoyaient le seul bas du cadre sur une feuille vide. Un
+    paragraphe encadré se coupe entre deux lignes et dessine son cadre sur chaque page."""
+    cadre = ParagraphStyle(
+        "notes_cadre", parent=style, borderWidth=0.6, borderColor=colors.HexColor("#c4b5fd"),
+        borderPadding=(6, 8, 6, 8), leftIndent=8, rightIndent=8, spaceBefore=6, spaceAfter=6,
+    )
+    return Paragraph(notes_html(texte), cadre)
+
+
 def date_longue(d: date) -> str:
     return f"{JOURS[d.weekday()]} {d.day:02d}/{d.month:02d}/{d.year}"
 
 
 def nom_fichier(*morceaux: Any) -> str:
+    """Nom du PDF, en ASCII : il part dans l'en-tête Content-Disposition, que le serveur
+    encode en latin-1 ; un client nommé « Dvořák » y faisait une erreur 500."""
     texte = "_".join(str(m) for m in morceaux if m)
-    texte = re.sub(r"[^\w\-]+", "_", texte, flags=re.UNICODE).strip("_")
+    texte = unicodedata.normalize("NFKD", texte).encode("ascii", "ignore").decode("ascii")
+    texte = re.sub(r"[^A-Za-z0-9\-]+", "_", texte).strip("_")
     return (texte[:120] or "document") + ".pdf"
 
 
@@ -103,8 +146,11 @@ def _table_plats(titre: str, lignes: list[dict[str, Any]], st: dict[str, Paragra
         data.append(["-", "-"])
     for l in lignes:
         texte = echapper(l["libelle"])
-        if l.get("commentaire"):
-            texte += f"<br/><font size=8.5 color='#6b7280'>{echapper(l['commentaire'])}</font>"
+        commentaire = commentaire_imprime(l.get("commentaire"))
+        if commentaire:
+            texte += f"<br/><font size=8.5 color='#6b7280'>{echapper(commentaire)}</font>"
+        if est_choix_du_chef(l["libelle"]):
+            texte += f"<br/><br/><font color='#9ca3af'>{LIGNE_CHOIX_DU_CHEF}</font><br/>"
         data.append([str(l["quantite"]), Paragraph(texte, st["texte"])])
     t = Table(data, colWidths=[1.6 * cm, None])
     t.setStyle(TableStyle([
@@ -184,11 +230,7 @@ def _page_fiche(fiche: dict[str, Any], st: dict[str, ParagraphStyle], cuisine: b
     titre_notes = "Notes cuisine" if cuisine else "Notes salle"
     if notes or not cuisine:
         histoire.append(Paragraph(titre_notes, st["h2"]))
-        bloc = Table([[Paragraph(notes_html(notes), st["texte"])]], colWidths=[None])
-        bloc.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#c4b5fd")),
-                                  ("LEFTPADDING", (0, 0), (-1, -1), 8), ("TOPPADDING", (0, 0), (-1, -1), 6),
-                                  ("BOTTOMPADDING", (0, 0), (-1, -1), 6)]))
-        histoire.append(bloc)
+        histoire.append(bloc_notes(notes, st["texte"]))
     if not cuisine and fiche.get("notes_cuisine"):
         histoire.append(Paragraph("Notes cuisine", st["h2"]))
         histoire.append(Paragraph(notes_html(fiche["notes_cuisine"]), st["texte"]))
