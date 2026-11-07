@@ -4,7 +4,6 @@ import pytest
 from albert.domain.erreurs import ErreurMetier
 from albert.services import fiches
 
-from .test_chatgpt import Mcp, _client_mcp, app_mcp, connecter  # noqa: F401 (fixtures)
 from .test_fiches_devis import creer_fiche
 
 
@@ -47,18 +46,3 @@ def test_chatgpt_confirme_avec_preuve_puis_finalise_et_rouvre(session, acteur_ad
     fiches.modifier(session, acteur_chatgpt, fiche.id, {"couverts": 38})
     with pytest.raises(ErreurMetier, match="dans l'outil"):
         fiches.changer_statut(session, acteur_chatgpt, fiche.id, "annulee", motif="test")
-
-
-def test_statut_par_le_connecteur(app_mcp, admin):
-    jeton, _ = connecter(app_mcp, admin.email, ["lecture", "fiches:ecrire"])
-    mcp = Mcp(app_mcp, jeton)
-    assert "fiche_statut_changer" in mcp.outils()
-    assert "Deux statuts à ne jamais confondre" in mcp.consignes
-    client = mcp.appeler("client_creer", nom="Conseil UE", type="entreprise", email="ue@consilium.europa.eu")["client"]
-    fiche = mcp.appeler("fiche_creer", client_id=client["id"], date="2030-11-09", heure="12:30", couverts=37,
-                        cle_idempotence="ue-1")["fiche"]
-    r = mcp.appeler("fiche_statut_changer", fiche_id=fiche["id"], version=fiche["version"], statut="confirmee",
-                    preuve="Gmail : e-mail du 05/11")
-    assert r["fiche"]["statut"] == "confirmee"
-    r = mcp.appeler("fiche_modifier", fiche_id=fiche["id"], version=r["fiche"]["version"], changements={"status": "x"})
-    assert r["ok"] is False and "inconnu" in r["erreur"]["message"]

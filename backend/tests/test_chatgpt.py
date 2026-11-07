@@ -207,3 +207,18 @@ def test_chatgpt_redige_une_plainte(app_mcp, admin):
     r = mcp.appeler("plainte_preparer", recit="Un client s'est plaint d'un plat froid hier soir.", date="2030-04-04",
                     gravite="moyen")
     assert r["ok"] and r["plainte"]["statut"] == "brouillon" and r["plainte"]["heure"] is None
+
+
+def test_statut_par_le_connecteur(app_mcp, admin):
+    jeton, _ = connecter(app_mcp, admin.email, ["lecture", "fiches:ecrire"])
+    mcp = Mcp(app_mcp, jeton)
+    assert "fiche_statut_changer" in mcp.outils()
+    assert "Deux statuts à ne jamais confondre" in mcp.consignes
+    client = mcp.appeler("client_creer", nom="Conseil UE", type="entreprise", email="ue@consilium.europa.eu")["client"]
+    fiche = mcp.appeler("fiche_creer", client_id=client["id"], date="2030-11-09", heure="12:30", couverts=37,
+                        cle_idempotence="ue-1")["fiche"]
+    r = mcp.appeler("fiche_statut_changer", fiche_id=fiche["id"], version=fiche["version"], statut="confirmee",
+                    preuve="Gmail : e-mail du 05/11")
+    assert r["fiche"]["statut"] == "confirmee"
+    r = mcp.appeler("fiche_modifier", fiche_id=fiche["id"], version=r["fiche"]["version"], changements={"status": "x"})
+    assert r["ok"] is False and "inconnu" in r["erreur"]["message"]
