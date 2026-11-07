@@ -1,7 +1,7 @@
 # Restaurant Albert — version 2
 
-Nouvelle version de l'outil, **séparée de l'ancienne** (`app/`, qui reste en service tant que la v2 n'est pas mise en production).
-Cahier des charges : [`docs/REFONTE_ANALYSE.md`](../docs/REFONTE_ANALYSE.md) et [`docs/REGLES_CHATGPT.md`](../docs/REGLES_CHATGPT.md).
+Nouvelle version de l'outil, **séparée de l'ancienne** (dépôt `jeanjaen0221-bot/app-cuisine22`, qui reste en service tant que la v2 n'est pas mise en production).
+Cahier des charges : [`docs/REFONTE_ANALYSE.md`](docs/REFONTE_ANALYSE.md) et [`docs/REGLES_CHATGPT.md`](docs/REGLES_CHATGPT.md).
 
 ## Ce que fait la v2
 
@@ -37,7 +37,7 @@ privatisation complète, et le prix de chaque plat de la carte pour « À la car
 ## Organisation du code
 
 ```
-v2/
+restaurant-albert-v2/
 ├── backend/
 │   ├── albert/
 │   │   ├── domain/      règles pures : saisies tolérantes, règles des fiches, calcul des devis (testées)
@@ -60,26 +60,26 @@ Les **mêmes services** servent le site et ChatGPT : une règle n'existe qu'à u
 
 ```bash
 # Serveur
-cd v2/backend
+cd backend
 pip install -r requirements-dev.txt
 export SECRET_KEY=dev-un-secret-long-pour-le-developpement DATABASE_URL=sqlite:///./albert_v2.db COOKIE_SECURE=0
 alembic upgrade head
 uvicorn albert.main:app --reload --port 8000
 
 # Site (autre terminal) : http://localhost:5173
-cd v2/frontend
+cd frontend
 npm install
 npm run dev
 ```
 
 Au premier accès, le site demande de créer le compte administrateur.
 
-Tests : `cd v2/backend && python -m pytest` · Vérification du site : `cd v2/frontend && npm run build`.
+Tests : `cd backend && python -m pytest` · Vérification du site : `cd frontend && npm run build`.
 
 ## Mettre en production (Railway)
 
 1. Créer un **nouveau service** (et une **nouvelle base PostgreSQL**) : ne pas réutiliser ceux de l'ancienne version.
-2. Dossier racine du service : `v2` (le `Dockerfile` s'y trouve).
+2. Dossier racine du service : la racine du dépôt (le `Dockerfile` s'y trouve).
 3. Variables : voir [`.env.example`](./.env.example) — `APP_ENV=production`, `DATABASE_URL`, `SECRET_KEY`,
    `PUBLIC_BASE_URL` (adresse https du service).
 4. Au démarrage, le conteneur applique les migrations puis lance le serveur. Un seul processus.
@@ -105,7 +105,7 @@ allergènes, formules, notes, Rooftop), plaintes, notes, boissons, fournisseurs,
 salle. Il se relance sans créer de doublon.
 
 ```bash
-cd v2/backend
+cd backend
 export DATABASE_URL=<base v2> SECRET_KEY=<secret v2>
 alembic upgrade head
 python -m albert.reprise --source <adresse de l'ancienne base>            # essai : affiche le rapport, n'écrit rien

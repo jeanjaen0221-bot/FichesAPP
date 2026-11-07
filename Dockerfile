@@ -1,5 +1,5 @@
 # Version 2 — Restaurant Albert (fiches, devis, bons pour facturation, connecteur ChatGPT).
-# Construire depuis le dossier v2 :  docker build -t albert-v2 v2
+# Construire depuis la racine du dépôt :  docker build -t albert-v2 .
 
 FROM node:20-alpine AS site
 WORKDIR /site
