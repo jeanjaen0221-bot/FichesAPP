@@ -396,6 +396,12 @@ def monter_mcp(app: FastAPI) -> None:
             chemin = "/mcp/.well-known/oauth-authorization-server"
             request.scope["path"] = chemin
             request.scope["raw_path"] = chemin.encode("ascii")
+        # ChatGPT appelle l'adresse déclarée, « /mcp », sans barre finale. Le montage ne répond
+        # qu'à « /mcp/ », et la route du site (« /{chemin} ») prenait « /mcp » : 405 sur chaque
+        # appel, d'où « Authentication succeeded, action discovery failed ».
+        elif request.url.path == "/mcp":
+            request.scope["path"] = "/mcp/"
+            request.scope["raw_path"] = b"/mcp/"
         return await call_next(request)
 
     @app.get("/.well-known/oauth-protected-resource/mcp", include_in_schema=False)

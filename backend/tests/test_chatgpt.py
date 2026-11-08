@@ -222,3 +222,22 @@ def test_statut_par_le_connecteur(app_mcp, admin):
     assert r["fiche"]["statut"] == "confirmee"
     r = mcp.appeler("fiche_modifier", fiche_id=fiche["id"], version=r["fiche"]["version"], changements={"status": "x"})
     assert r["ok"] is False and "inconnu" in r["erreur"]["message"]
+
+
+def test_adresse_sans_barre_finale(app_mcp, admin):
+    # ChatGPT appelle l'adresse déclarée, « /mcp », sans « / » final. La route du site la
+    # prenait (405) : « Authentication succeeded, action discovery failed ».
+    r = app_mcp.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                     headers={"Accept": "application/json, text/event-stream"}, follow_redirects=False)
+    assert r.status_code == 401 and "resource_metadata" in r.headers.get("www-authenticate", "")
+    jeton, _ = connecter(app_mcp, admin.email, ["lecture", "fiches:ecrire"])
+    entetes = {"Authorization": f"Bearer {jeton}", "Accept": "application/json, text/event-stream"}
+    r = app_mcp.post("/mcp", headers=entetes, json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "chatgpt", "version": "1"}}},
+        follow_redirects=False)
+    assert r.status_code == 200
+    if r.headers.get("mcp-session-id"):
+        entetes["mcp-session-id"] = r.headers["mcp-session-id"]
+    r = app_mcp.post("/mcp", headers=entetes, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                     follow_redirects=False)
+    assert r.status_code == 200 and "fiche_creer" in r.text
