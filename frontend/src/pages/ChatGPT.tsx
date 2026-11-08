@@ -30,7 +30,7 @@ export default function ChatGPT() {
         </ol>
         <h3>Droits possibles</h3>
         <ul className="liste">{i.droits.map((d) => <li key={d.cle}><code>{d.cle}</code> — {d.libelle}</li>)}</ul>
-        <p className="aide">Jamais possible pour ChatGPT : valider ou transmettre un devis, modifier un prix ou une formule, supprimer, passer une fiche en « finale », écrire au client.</p>
+        <p className="aide">Jamais possible pour ChatGPT : valider ou transmettre un devis, modifier un prix ou une formule, supprimer, confirmer une réservation sans preuve (Gmail ou Zenchef), passer une fiche en « réalisée », écrire au client. Il peut confirmer avec preuve, finaliser après validation de l'équipe et rouvrir une fiche finale.</p>
       </section>
       <section className="carte">
         <h2>Connexions</h2>
