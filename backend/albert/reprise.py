@@ -224,7 +224,15 @@ def _fiches(source: Engine, session: Session, rapport: Rapport) -> None:
             try:
                 formule_repas = choisir(r["menu_formula"], formules_repas, "formule_repas")
             except ErreurMetier:
-                rapport.noter(f"Formule repas inconnue « {r['menu_formula']} » ({client.nom}, {jour}).")
+                formule_repas = _formule_dans_le_texte(r["menu_formula"], formules_repas)
+                if formule_repas is not None:
+                    rapport.noter(f"Formule repas « {r['menu_formula']} » reprise comme « {formule_repas.nom} » "
+                                  f"({client.nom}, {jour}).")
+                else:
+                    rapport.noter(f"Formule repas inconnue « {r['menu_formula']} » ({client.nom}, {jour}) : "
+                                  "gardée dans les notes cuisine.")
+                # Le texte d'origine reste lisible sur la fiche (prix, précisions…).
+                notes_cuisine.append(f"Formule repas (ancienne fiche) : {r['menu_formula']}")
         formule_boissons = None
         if (r.get("drink_formula") or "").strip():
             try:
@@ -351,6 +359,21 @@ def _plan(source: Engine, session: Session, rapport: Rapport) -> None:
         else:
             plan.donnees = donnees
         rapport.compter("plan de salle")
+
+
+def _formule_dans_le_texte(texte: str, formules: list) -> Any:
+    """« Déjeuner 3 services – 40 € / personne » → la formule « 3 services », si elle existe."""
+    import re
+
+    m = re.search(r"\b([1-9])\s*services?\b", texte, re.IGNORECASE)
+    if not m:
+        return None
+    nombre = m.group(1)
+    nom = f"{nombre} service" if nombre == "1" else f"{nombre} services"
+    try:
+        return choisir(nom, formules, "formule_repas")
+    except ErreurMetier:
+        return None
 
 
 def principal(argv: Optional[Iterable[str]] = None) -> int:

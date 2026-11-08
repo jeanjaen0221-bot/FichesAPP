@@ -99,3 +99,22 @@ def test_reprise_complete_et_relancable(session, tmp_path):
     session.commit()
     assert len(session.scalars(select(Fiche)).all()) == 2 and len(session.scalars(select(BonCommande)).all()) == 1
     assert "fiches" not in rapport2.compteurs
+
+
+def test_formule_ecrite_en_toutes_lettres(session, tmp_path):
+    # Sur l'ancienne version, la formule était parfois saisie librement : elle n'était
+    # pas reprise du tout, prix et précisions compris.
+    source = ancienne_base(tmp_path / "ancienne.db")
+    with source.begin() as c:
+        c.execute(text("INSERT INTO reservation VALUES "
+                       "('r4','BNP',30,'2030-10-08','12:00:00','sans alcool','Déjeuner 3 services – 40 € / personne',NULL,'confirmed',0,0,'',0,NULL,NULL,NULL,NULL,NULL),"
+                       "('r5','Lagaert',8,'2030-10-02','19:00:00','sans alcool','À confirmer',NULL,'draft',0,0,'',0,NULL,NULL,NULL,NULL,NULL)"))
+    rapport = Rapport()
+    reprendre(source, session, rapport)
+    session.commit()
+    bnp = session.scalars(select(Fiche).join(Client).where(Client.nom == "BNP")).one()
+    assert bnp.formule_repas.nom == "3 services"
+    assert "Déjeuner 3 services – 40 € / personne" in bnp.notes_cuisine
+    lagaert = session.scalars(select(Fiche).join(Client).where(Client.nom == "Lagaert")).one()
+    assert lagaert.formule_repas is None and "À confirmer" in lagaert.notes_cuisine
+    assert any("reprise comme « 3 services »" in r for r in rapport.remarques)
