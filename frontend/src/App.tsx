@@ -14,6 +14,7 @@ import DevisDetail from './pages/DevisDetail'
 import Bons from './pages/Bons'
 import BonDetail from './pages/BonDetail'
 import Compta from './pages/Compta'
+import Carte from './pages/Carte'
 import Prix from './pages/Prix'
 import Formules from './pages/Formules'
 import Journal from './pages/Journal'
@@ -86,6 +87,7 @@ function Mise() {
           {p.fiches && <Lien vers="/achats">Achats</Lien>}
           {p.compta && <Lien vers="/compta">Espace compta</Lien>}
           <div className="separateur" />
+          <Lien vers="/carte">Carte</Lien>
           <Lien vers="/prix" badge={p.prix ? prixManquants : 0}>Prix</Lien>
           <Lien vers="/formules">Formules</Lien>
           {p.fiches && <Lien vers="/chatgpt">ChatGPT</Lien>}
@@ -116,6 +118,7 @@ function Mise() {
           {p.fiches && <Route path="/achats/commandes/:id" element={<BonCommandeDetail />} />}
           <Route path="/bons/:id" element={<BonDetail />} />
           {p.compta && <Route path="/compta" element={<Compta />} />}
+          <Route path="/carte" element={<Carte />} />
           <Route path="/prix" element={<Prix />} />
           <Route path="/formules" element={<Formules />} />
           {p.fiches && <Route path="/chatgpt" element={<ChatGPT />} />}

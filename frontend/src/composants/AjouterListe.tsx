@@ -2,13 +2,13 @@ import { useRef, useState } from 'react'
 import { api, Echec } from '../api'
 import { Champ, Erreur, useAction } from './ui'
 
-// Menu Prix → « Ajouter une liste » : coller une carte (ou lire un PDF / texte / CSV), voir ce
+// Menu Carte → « Ajouter une liste / nouvelle carte » : coller une carte (ou lire un PDF / texte / CSV), voir ce
 // que fera l'import ligne par ligne, puis importer. Le serveur relit le texte à l'import : ce
 // qui est importé est exactement ce que montre l'aperçu, rien n'est écrit avant.
 
-type Action = 'creer' | 'completer_prix' | 'remplacer_prix' | 'reactiver' | 'inchange' | 'prix_different' | 'erreur'
+type Action = 'creer' | 'completer_prix' | 'remplacer_prix' | 'reactiver' | 'inchange' | 'prix_different' | 'erreur' | 'desactiver'
 type LigneListe = {
-  numero: number; texte: string; nom: string | null; categorie: string | null; prix: string | null
+  numero: number | null; texte: string; produit_id: string | null; nom: string | null; categorie: string | null; prix: string | null
   prix_actuel: string | null; action: Action; action_libelle: string; message: string | null
 }
 type Resultat = { lignes: LigneListe[]; resume: Record<Action, number> }
@@ -16,9 +16,9 @@ type Resultat = { lignes: LigneListe[]; resume: Record<Action, number> }
 const TYPES: Record<string, string> = { entree: 'Entrée', plat: 'Plat', dessert: 'Dessert', supplement: 'Supplément' }
 const COULEURS: Record<Action, string> = {
   creer: 'vert', completer_prix: 'bleu', remplacer_prix: 'ambre', reactiver: 'cyan',
-  inchange: 'gris', prix_different: 'ambre', erreur: 'rouge',
+  inchange: 'gris', prix_different: 'ambre', erreur: 'rouge', desactiver: 'violet',
 }
-const A_ECRIRE: Action[] = ['creer', 'completer_prix', 'remplacer_prix', 'reactiver']
+const A_ECRIRE: Action[] = ['creer', 'completer_prix', 'remplacer_prix', 'reactiver', 'desactiver']
 const EXEMPLE = `Entrées
 Carpaccio de bœuf ........ 14,50 €
 Croquettes aux crevettes 16
@@ -33,6 +33,7 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
   const [texte, setTexte] = useState('')
   const [typeDefaut, setTypeDefaut] = useState('')
   const [remplacer, setRemplacer] = useState(false)
+  const [nouvelleCarte, setNouvelleCarte] = useState(false)
   const [apercu, setApercu] = useState<Resultat | null>(null)
   const [fait, setFait] = useState<Resultat | null>(null)
   const [voirTout, setVoirTout] = useState(false)
@@ -41,7 +42,7 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
 
   // Toute modification rend l'aperçu périmé : il faut le refaire avant d'importer.
   const changer = (maj: () => void) => { maj(); setApercu(null); setFait(null) }
-  const corps = () => ({ texte, categorie_defaut: typeDefaut || null, remplacer_prix: remplacer })
+  const corps = () => ({ texte, categorie_defaut: typeDefaut || null, remplacer_prix: remplacer, nouvelle_carte: nouvelleCarte })
 
   const voirApercu = async () => {
     const r = await action.lancer(() => api.post<Resultat>('/api/produits/liste/apercu', corps()))
@@ -73,12 +74,12 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
 
   return (
     <section className="carte">
-      <h2>Ajouter une liste</h2>
+      <h2>Ajouter une liste ou changer de carte</h2>
       <p className="aide">
         Coller la carte telle quelle ou une ligne par produit. Les intertitres (« Entrées », « Plats », « Desserts », « Suppléments »)
         donnent le type des lignes qui suivent ; le prix TVA comprise peut être en fin de ligne (« … 14,50 € ») ou après
         un « | » : <code>Dame blanche | dessert | 8,00</code>. Sans prix, le produit est ajouté « à compléter ».
-        Un produit déjà dans le menu Prix n'est jamais créé deux fois.
+        Un produit déjà sur la carte n'est jamais créé deux fois.
       </p>
       <div className="ligne-champs">
         <Champ libelle="Type des lignes sans type" aide="Avant le premier intertitre.">
@@ -98,14 +99,24 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
           <input type="checkbox" checked={remplacer} onChange={(e) => { const v = e.target.checked; changer(() => setRemplacer(v)) }} />
           {' '}Remplacer les prix déjà saisis quand la liste en donne un autre
         </label>
+        <label className="case">
+          <input type="checkbox" checked={nouvelleCarte} onChange={(e) => { const v = e.target.checked; changer(() => setNouvelleCarte(v)) }} />
+          {' '}C'est la nouvelle carte : retirer les produits absents de la liste
+        </label>
         <button type="button" className="principal" disabled={action.enCours || !texte.trim()} onClick={voirApercu}>Voir l'aperçu</button>
       </div>
+      {nouvelleCarte && (
+        <p className="aide">
+          Seulement dans les types présents dans la liste : coller les seuls desserts ne retire ni les entrées ni les plats.
+          Un produit retiré reste sur les fiches et devis qui l'ont déjà ; il peut être remis sur la carte à tout moment.
+        </p>
+      )}
       <Erreur message={action.erreur} />
 
       {fait && (
         <div className="bandeau info">
           Importé : {fait.resume.creer} nouveau(x) produit(s), {fait.resume.completer_prix + fait.resume.remplacer_prix} prix
-          mis à jour, {fait.resume.reactiver} réactivé(s).
+          mis à jour, {fait.resume.reactiver} réactivé(s){fait.resume.desactiver > 0 && `, ${fait.resume.desactiver} retiré(s) de la carte`}.
           {fait.resume.erreur > 0 && ` ${fait.resume.erreur} ligne(s) ignorée(s).`}
           {fait.lignes.some((l) => l.action === 'creer' && !l.prix) && ' Les produits sans prix sont dans « Prix manquants ».'}
         </div>
@@ -119,17 +130,19 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
               <span key={a} className={`pastille ${COULEURS[a]}`}>{apercu.resume[a]} × {apercu.lignes.find((l) => l.action === a)?.action_libelle}</span>
             ))}
           </div>
-          {apercu.resume.erreur > 0 && <p className="aide">Les lignes « Ignoré » ne seront pas importées : corriger le texte puis refaire l'aperçu, ou importer sans elles.</p>}
+          {apercu.resume.erreur > 0 && (nouvelleCarte
+            ? <div className="bandeau erreur">Pour remplacer la carte, corriger ou effacer les lignes « Ignoré » puis refaire l'aperçu : une ligne illisible pourrait être un plat à garder.</div>
+            : <p className="aide">Les lignes « Ignoré » ne seront pas importées : corriger le texte puis refaire l'aperçu, ou importer sans elles.</p>)}
           <table className="tableau">
             <thead><tr><th className="etroit">Ligne</th><th>Nom</th><th>Type</th><th className="droite">Prix</th><th>Ce qui sera fait</th><th>Remarque</th></tr></thead>
             <tbody>
               {lignesVisibles.map((l) => (
-                <tr key={l.numero} className={l.action === 'erreur' || l.action === 'prix_different' ? 'ligne-alerte' : ''}>
-                  <td className="muet">{l.numero}</td>
+                <tr key={l.numero ?? `retire-${l.produit_id}`} className={l.action === 'erreur' || l.action === 'prix_different' ? 'ligne-alerte' : ''}>
+                  <td className="muet">{l.numero ?? '—'}</td>
                   <td>{l.nom ?? <span className="muet">{l.texte}</span>}</td>
                   <td>{l.categorie ? TYPES[l.categorie] : '—'}</td>
                   <td className="droite">
-                    {l.action === 'erreur' ? '—' : l.prix ?? <span className="muet">à compléter</span>}
+                    {l.action === 'erreur' ? '—' : l.action === 'desactiver' ? l.prix_actuel : l.prix ?? <span className="muet">à compléter</span>}
                     {l.prix_actuel && l.prix && l.prix_actuel !== l.prix && <div className="aide">actuel : {l.prix_actuel}</div>}
                   </td>
                   <td><span className={`pastille ${COULEURS[l.action]}`}>{l.action_libelle}</span></td>
@@ -140,11 +153,11 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
           </table>
           {apercu.resume.inchange > 0 && (
             <button type="button" onClick={() => setVoirTout(!voirTout)}>
-              {voirTout ? 'Masquer' : 'Voir aussi'} les {apercu.resume.inchange} produit(s) déjà dans le menu
+              {voirTout ? 'Masquer' : 'Voir aussi'} les {apercu.resume.inchange} produit(s) déjà sur la carte
             </button>
           )}
           <div className="ligne-champs">
-            <button type="button" className="principal" disabled={action.enCours || aEcrire === 0} onClick={importer}>
+            <button type="button" className="principal" disabled={action.enCours || aEcrire === 0 || (nouvelleCarte && apercu.resume.erreur > 0)} onClick={importer}>
               {aEcrire === 0 ? 'Rien à importer' : `Importer ${aEcrire} produit(s)`}
             </button>
           </div>

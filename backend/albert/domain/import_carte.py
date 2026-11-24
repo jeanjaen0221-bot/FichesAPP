@@ -37,8 +37,8 @@ _TYPES = {
     "accompagnement": "supplement", "accompagnements": "supplement", "sides": "supplement",
 }
 
-# Prix en fin de ligne : « 14,50 », « 14.50 € », « € 14 », « 14 eur ». Un entier nu n'est un prix
-# que s'il est annoncé (€, points de conduite) : « Tartare 200 » ou « Menu 3 » restent des noms.
+# Prix en fin de ligne : « 14,50 », « 14.50 € », « € 14 », « 26 » (comme sur la plupart des cartes).
+# Une année (« Cuvée 2019 ») ou une quantité (« Tartare 200 g ») reste dans le nom.
 _PRIX_FIN = re.compile(
     r"(?P<avant>\s*(?:\.{2,}|…+|_{2,}|-{2,})?\s*)(?P<euro1>€\s*)?(?P<montant>\d{1,4}(?:[.,]\d{1,2})?)"
     r"\s*(?P<euro2>€|eur\b|euros?\b)?\s*$",
@@ -79,7 +79,7 @@ def _prix_en_fin(ligne: str) -> tuple[str, Optional[int]]:
         return ligne, None
     annonce = m.group("euro1") or m.group("euro2") or re.search(r"[.…_\-]{2,}", m.group("avant") or "")
     decimal = re.search(r"[.,]\d{1,2}$", m.group("montant"))
-    if not (annonce or decimal):
+    if not (annonce or decimal) and len(m.group("montant")) > 3:  # « 2019 » : une année, pas 2 019 €
         return ligne, None
     if not (m.group("avant") or m.group("euro1")):  # « Menu14,50 » : collé au nom, pas un prix
         return ligne, None

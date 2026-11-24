@@ -15,7 +15,8 @@ Parcours : **Client → Fiche → Devis TVA comprise → transmis à la compta**
 | Devis | Calculé depuis la fiche aux prix du menu Prix ; brouillon → validé → transmis → envoyé → accepté / refusé ; nouvelle version si le client change d'avis |
 | Bons pour facturation | Couverts réels, extras, écart avec le devis ; transmis à la compta, marqué « facturé » |
 | Espace compta | « À envoyer », « En attente de réponse », « À facturer », historique (rôle `compta`) |
-| Prix | Tout ce qui se vend, TVA comprise, avec le filtre « Prix manquants » et un compteur rouge ; « Ajouter une liste » : coller une carte (ou lire un PDF, texte, CSV), aperçu ligne par ligne, puis import |
+| Carte | Entrées, plats, desserts et suppléments avec leur prix TVA comprise : modifier, retirer de la carte (les fiches et devis le gardent), supprimer s'il n'a jamais servi ; « Ajouter une liste ou changer de carte » : coller la carte (ou lire un PDF, texte, CSV), aperçu ligne par ligne, et retirer les produits absents de la nouvelle carte |
+| Prix | Formules, coupes et privatisations, TVA comprise, avec le filtre « Prix manquants » (toute la carte comprise) et un compteur rouge |
 | Formules | Formules repas et boissons : ce qu'on choisit sur une fiche ; le prix vient du menu Prix |
 | Salle | Plan de base (tables, zones, réglages) et plan de chaque service : fiches du jour + PDF de réservations, placement automatique ou à la main, PDF du service et PDF annoté ; la table apparaît sur la fiche |
 | Plaintes | Rapport rattaché au client et à la fiche, gravité, brouillon (ChatGPT) → ouverte → traitée, PDF |

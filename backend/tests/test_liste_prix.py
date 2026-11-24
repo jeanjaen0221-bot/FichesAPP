@@ -19,7 +19,8 @@ Croquettes aux crevettes 16.00
 Plats :
 Steak frites, sauce au poivre ……… 26 €
 Tartare 200 g
-Menu 3
+Cuvée du patron 2019
+Burger maison 19
 Bœuf 300g 24 €
 
 — Desserts —
@@ -42,7 +43,8 @@ def test_carte_copiee_telle_quelle():
         ("Velouté du moment", "entree", 900, None),
         ("Steak frites, sauce au poivre", "plat", 2600, None),
         ("Tartare 200 g", "plat", None, None),   # « 200 g » n'est pas un prix
-        ("Menu 3", "plat", None, None),          # un entier nu n'est pas un prix
+        ("Cuvée du patron 2019", "plat", None, None),  # une année n'est pas un prix
+        ("Burger maison", "plat", 1900, None),   # un entier en fin de ligne est le prix
         ("Bœuf 300g", "plat", 2400, None),
         ("Moelleux au chocolat", "dessert", 950, None),
         ("Dame blanche", "dessert", 800, None),
@@ -156,3 +158,50 @@ def test_api(session, http_admin):
     r = http_admin.post("/api/produits/liste/fichier", files={"fichier": ("carte.txt", "Entrées\nSoupe 7,50".encode(), "text/plain")})
     assert r.json() == {"texte": "Entrées\nSoupe 7,50"}
     assert http_admin.post("/api/produits/liste/apercu", json={"texte": " "}).status_code == 422
+
+
+def test_nouvelle_carte_retire_les_absents_du_meme_type(session, acteur_admin):
+    ancien = _produit(session, "Velouté d'automne", "entree", 900)
+    garde = _produit(session, "Carpaccio de bœuf", "entree", 1450)
+    plat = _produit(session, "Civet de chevreuil", "plat", 2800)  # aucun plat dans la liste : on n'y touche pas
+    texte = "Entrées\nCarpaccio de bœuf 14,50\nSoupe de potiron 8,00"
+
+    apercu = catalogue.analyser_liste(session, texte, nouvelle_carte=True)
+    retires = [l["nom"] for l in apercu if l["action"] == "desactiver"]
+    assert retires == ["Velouté d'automne"]
+    assert catalogue.analyser_liste(session, texte) == [l for l in apercu if l["action"] != "desactiver"]
+
+    catalogue.importer_liste(session, acteur_admin, texte, nouvelle_carte=True)
+    for p in (ancien, garde, plat):
+        session.refresh(p)
+    assert (ancien.actif, garde.actif, plat.actif) == (False, True, True)
+    journal = session.scalars(select(Audit).where(Audit.action == "produit.importer")).one().resume
+    assert "1 retiré(s) de la carte" in journal
+
+    # Une ligne illisible bloque le remplacement : elle pourrait être un plat à garder.
+    with pytest.raises(ErreurMetier) as e:
+        catalogue.importer_liste(session, acteur_admin, "Entrées\nSoupe | entrée | huit", nouvelle_carte=True)
+    assert "corriger" in e.value.message
+    session.refresh(garde)
+    assert garde.actif is True
+
+
+def test_supprimer_seulement_si_jamais_utilise(session, acteur_admin, http_admin):
+    from albert.services import fiches
+
+    from .conftest import nouveau_client
+
+    faute = _produit(session, "Carpacio", "entree", 1450)
+    servi = _produit(session, "Tiramisu", "dessert", 900)
+    client = nouveau_client(session, acteur_admin)
+    fiches.creer(session, acteur_admin, {"client_id": str(client.id), "date": "2030-06-12", "heure": "19:30",
+                                         "couverts": 4, "lignes": [{"type": "dessert", "libelle": "Tiramisu", "quantite": 4}]})
+    faute_id = faute.id
+    assert http_admin.delete(f"/api/produits/{faute_id}").status_code == 200
+    session.expire_all()  # supprimé par une autre session (celle de la requête)
+    assert session.get(Produit, faute_id) is None
+    r = http_admin.delete(f"/api/produits/{servi.id}")
+    assert r.status_code == 422 and "désactiver" in r.json()["erreur"]["message"]
+    # Un produit du catalogue de départ lié à une formule ne se supprime pas non plus.
+    trois = session.scalars(select(Produit).where(Produit.nom == "3 services")).one()
+    assert http_admin.delete(f"/api/produits/{trois.id}").status_code == 422
