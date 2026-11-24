@@ -161,15 +161,21 @@ def _table_plats(titre: str, lignes: list[dict[str, Any]], st: dict[str, Paragra
     return [KeepTogether([t]), Spacer(1, 8)]
 
 
-def _allergenes(cles: Iterable[str], st: dict[str, ParagraphStyle]) -> list:
+def _allergenes(cles: Iterable[str], st: dict[str, ParagraphStyle],
+                libelles: Optional[dict[str, str]] = None, icones: Optional[dict[str, bytes]] = None) -> list:
+    """`libelles` et `icones` : allergènes ajoutés dans Paramètres (libellé, icône PNG)."""
     cles = list(cles)
     if not cles:
         return [Paragraph("Aucun allergène signalé.", st["texte"])]
+    libelles = {**ALLERGENES, **(libelles or {})}
     cellules = []
     for k in cles:
-        icone = os.path.join(ICONES_ALLERGENES, f"{k}.png")
-        libelle = Paragraph(f"<b>{echapper(ALLERGENES.get(k, k))}</b>", st["texte"])
-        if os.path.isfile(icone):
+        fichier = os.path.join(ICONES_ALLERGENES, f"{k}.png")
+        icone: Any = fichier if os.path.isfile(fichier) else None
+        if icone is None and (icones or {}).get(k):
+            icone = io.BytesIO(icones[k])
+        libelle = Paragraph(f"<b>{echapper(libelles.get(k, k))}</b>", st["texte"])
+        if icone is not None:
             cellules.append(Table([[Image(icone, width=18, height=18), libelle]], colWidths=[22, None]))
         else:
             cellules.append(libelle)
@@ -225,7 +231,8 @@ def _page_fiche(fiche: dict[str, Any], st: dict[str, ParagraphStyle], cuisine: b
         histoire += [badge, Spacer(1, 8)]
 
     histoire.append(Paragraph("Allergènes", st["h2"]))
-    histoire += _allergenes(fiche.get("allergenes") or [], st)
+    histoire += _allergenes(fiche.get("allergenes") or [], st, fiche.get("libelles_allergenes"),
+                           fiche.get("icones_allergenes"))
     notes = fiche.get("notes_cuisine") if cuisine else fiche.get("notes_salle")
     titre_notes = "Notes cuisine" if cuisine else "Notes salle"
     if notes or not cuisine:

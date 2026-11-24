@@ -23,7 +23,7 @@ Parcours : **Client → Fiche → Devis TVA comprise → transmis à la compta**
 | Achats | Boissons (stock min/max, colisage), fournisseurs et prix d'achat, réassort → un bon de commande par fournisseur, PDF/CSV, suivi envoyé → reçu ; import d'une carte (texte, CSV, PDF) |
 | ChatGPT | Adresse du connecteur, connexions actives, bouton « Couper » |
 | Journal | Qui a fait quoi, sur le site ou par ChatGPT (admin) |
-| Utilisateurs / Paramètres | Rôles admin / équipe / compta, droits « prix » et « chatgpt » ; coordonnées du restaurant, validité des devis ; synchronisation Zenchef ; liaison Gmail |
+| Utilisateurs / Paramètres | Rôles admin / équipe / compta, droits « prix » et « chatgpt » ; coordonnées du restaurant, validité des devis ; allergènes ajoutés (avec icône) ; synchronisation Zenchef ; liaison Gmail |
 
 Décisions appliquées : pas de facture dans l'outil, la compta envoie elle-même, **tous les prix TVA comprise**, ni remise ni acompte,
 trois privatisations (Semi-privatisation, Privatisation complète, Privatisation City 600 €), City est un espace à part,
@@ -100,7 +100,9 @@ par le serveur, pas seulement par les consignes. Chaque action de ChatGPT appara
 
 ## Reprendre les données de l'ancienne version
 
-Le script lit l'ancienne base (sans jamais la modifier) et remplit la v2 : comptes (mêmes mots de passe), plats et
+Le script lit l'ancienne base (sans jamais la modifier) et remplit la v2 : comptes (mêmes mots de passe), allergènes
+ajoutés dans les Paramètres (avec leur icône), liaison de la boîte Gmail (à condition de garder les mêmes
+`GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` que l'ancienne version), plats et
 suppléments (dans le menu Prix, prix à compléter), clients (avec les coordonnées de facturation), fiches (lignes,
 allergènes, formules, notes, Rooftop), plaintes, notes, boissons, fournisseurs, prix d'achat, bons de commande, plan de
 salle. Il se relance sans créer de doublon.

@@ -36,7 +36,7 @@ from ..domain.regles import (
     verifier_transition,
 )
 from ..models import BonFacturation, Devis, Fiche, FicheLigne, Produit
-from . import catalogue, clients, salle
+from . import allergenes as allergenes_service, catalogue, clients, salle
 from .contexte import Acteur, journaliser, verifier_version
 
 
@@ -253,7 +253,7 @@ def _appliquer(session: Session, fiche: Fiche, donnees: dict[str, Any], nouvelle
     elif nouvelle:
         fiche.espace = "salle"
     if "allergenes" in donnees:
-        fiche.allergenes = lire_allergenes(donnees["allergenes"])
+        fiche.allergenes = lire_allergenes(donnees["allergenes"], allergenes_service.supplementaires(session))
     for champ in ("notes_salle", "notes_cuisine"):
         if champ in donnees:
             setattr(fiche, champ, nettoyer_notes(donnees[champ]))

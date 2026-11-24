@@ -11,6 +11,7 @@ from ..domain.erreurs import ErreurMetier, introuvable
 from ..domain.normalisation import lire_date
 from ..models import FormuleBoissons, FormuleRepas
 from ..pdf.documents import nom_fichier, pdf_fiches
+from ..services import allergenes as allergenes_service
 from ..services import bons as bons_service, catalogue, clients, devis as devis_service, fiches
 from ..services.contexte import Acteur, journaliser
 from .deps import acteur_connecte, corps, reponse_pdf, session_db
@@ -115,6 +116,8 @@ def dupliquer_fiche(fiche_id: str, donnees: dict = Body(default={}), acteur: Act
 def _pour_pdf(session: Session, fiche: Any) -> dict[str, Any]:
     d = fiches.fiche_dict(session, fiche)
     d["formule_sans_plats"] = bool(fiche.formule_repas and fiche.formule_repas.comportement == "sans_plats")
+    d["libelles_allergenes"] = allergenes_service.supplementaires(session)
+    d["icones_allergenes"] = allergenes_service.icones(session)
     return d
 
 

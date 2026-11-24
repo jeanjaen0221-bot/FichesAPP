@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, formatJour } from '../api'
+import { api, Echec, formatJour } from '../api'
 import { Champ, EnTete, Erreur, useAction } from '../composants/ui'
 
 type Params = Record<string, string | number | string[]>
@@ -55,9 +55,90 @@ export default function Parametres() {
           </Champ>
         </div>
       </section>
+      <Allergenes />
       <Zenchef />
       <Gmail />
     </form>
+  )
+}
+
+type AllergeneAjoute = { cle: string; libelle: string; icone: boolean }
+
+// Allergènes en plus des 14 réglementaires : proposés sur la fiche, lus par ChatGPT, imprimés avec leur icône.
+// Cette carte est dans le formulaire des paramètres : ses boutons sont de type « button » et Entrée est retenu.
+function Allergenes() {
+  const [liste, setListe] = useState<AllergeneAjoute[] | null>(null)
+  const [libelle, setLibelle] = useState('')
+  const [icone, setIcone] = useState<File | null>(null)
+  const [version, setVersion] = useState(0)
+  const champIcone = useRef<HTMLInputElement>(null)
+  const { enCours, erreur, lancer } = useAction()
+  const charger = () => api.get<AllergeneAjoute[]>('/api/allergenes').then(setListe).catch(() => {})
+  useEffect(() => { charger() }, [])
+
+  const envoyer = (chemin: string, champs: Record<string, string>, fichier?: File | null) => lancer(async () => {
+    const formulaire = new FormData()
+    for (const [cle, valeur] of Object.entries(champs)) formulaire.append(cle, valeur)
+    if (fichier) formulaire.append('icone', fichier)
+    const r = await fetch(chemin, { method: 'POST', body: formulaire, credentials: 'same-origin', headers: { 'X-Albert': '1' } })
+    const corps = await r.json().catch(() => null)
+    if (!r.ok) throw new Echec(r.status, corps?.erreur ?? { code: 'erreur_serveur', message: 'Erreur inattendue.' })
+    return corps as AllergeneAjoute
+  })
+
+  const ajouter = async () => {
+    if (!libelle.trim()) return
+    if (await envoyer('/api/allergenes', { libelle: libelle.trim() }, icone)) {
+      setLibelle(''); setIcone(null); if (champIcone.current) champIcone.current.value = ''; charger()
+    }
+  }
+  const changerIcone = async (a: AllergeneAjoute, fichier?: File) => {
+    if (fichier && await envoyer(`/api/allergenes/${a.cle}`, {}, fichier)) { setVersion((v) => v + 1); charger() }
+  }
+  const renommer = async (a: AllergeneAjoute) => {
+    const nouveau = window.prompt('Nouveau libellé', a.libelle)
+    if (nouveau && nouveau.trim() && nouveau.trim() !== a.libelle && await envoyer(`/api/allergenes/${a.cle}`, { libelle: nouveau.trim() })) charger()
+  }
+  const supprimer = async (a: AllergeneAjoute) => {
+    if (window.confirm(`Supprimer l'allergène « ${a.libelle} » ?`) && await lancer(() => api.delete(`/api/allergenes/${a.cle}`))) charger()
+  }
+
+  return (
+    <section className="carte">
+      <h2>Allergènes ajoutés</h2>
+      <p className="aide">En plus des 14 allergènes réglementaires : ils sont proposés sur la fiche, lus par ChatGPT et imprimés avec leur icône (PNG ou JPEG, 2 Mo au plus). Un allergène utilisé sur une fiche ne se supprime pas.</p>
+      {liste && liste.length > 0 && (
+        <table className="tableau">
+          <tbody>
+            {liste.map((a) => (
+              <tr key={a.cle}>
+                <td style={{ width: 40 }}>{a.icone && <img src={`/api/allergenes/${a.cle}/icone?v=${version}`} alt="" width={24} height={24} />}</td>
+                <td><strong>{a.libelle}</strong> <span className="aide">({a.cle})</span></td>
+                <td style={{ textAlign: 'right' }}>
+                  <label className="bouton">
+                    {a.icone ? "Changer l'icône" : 'Ajouter une icône'}
+                    <input type="file" accept="image/png,image/jpeg" hidden onChange={(e) => { changerIcone(a, e.target.files?.[0]); e.target.value = '' }} />
+                  </label>{' '}
+                  <button type="button" disabled={enCours} onClick={() => renommer(a)}>Renommer</button>{' '}
+                  <button type="button" className="danger" disabled={enCours} onClick={() => supprimer(a)}>Supprimer</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="ligne-champs">
+        <Champ libelle="Nouvel allergène">
+          <input value={libelle} placeholder="ex. Kiwi" onChange={(e) => setLibelle(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); ajouter() } }} />
+        </Champ>
+        <Champ libelle="Icône (facultatif)">
+          <input type="file" accept="image/png,image/jpeg" ref={champIcone} onChange={(e) => setIcone(e.target.files?.[0] ?? null)} />
+        </Champ>
+        <button type="button" disabled={enCours || !libelle.trim()} onClick={ajouter}>Ajouter</button>
+      </div>
+      <Erreur message={erreur} />
+    </section>
   )
 }
 
