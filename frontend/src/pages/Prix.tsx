@@ -1,16 +1,16 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { api, euros } from '../api'
-import AjouterListe from '../composants/AjouterListe'
 import { Champ, EnTete, Erreur, useAction, useCharger } from '../composants/ui'
 import { useSession } from '../contexte'
 import type { Produit } from '../types'
 
 const ONGLETS = [
   { cle: 'formule_repas', libelle: 'Formules repas' }, { cle: 'formule_boissons', libelle: 'Formules boissons' },
-  { cle: 'coupe', libelle: 'Coupes' }, { cle: 'entree,plat,dessert', libelle: 'Plats de la carte' },
-  { cle: 'supplement', libelle: 'Suppléments' }, { cle: 'privatisation', libelle: 'Privatisations' },
+  { cle: 'coupe', libelle: 'Coupes' }, { cle: 'privatisation', libelle: 'Privatisations' },
 ]
+// Entrées, plats, desserts et suppléments se gèrent dans le menu Carte.
+const CARTE = ['entree', 'plat', 'dessert', 'supplement']
 const NOMS_CATEGORIES: Record<string, string> = {
   formule_repas: 'Formule repas', formule_boissons: 'Formule boissons', coupe: 'Coupe', entree: 'Entrée',
   plat: 'Plat', dessert: 'Dessert', supplement: 'Supplément', privatisation: 'Privatisation',
@@ -29,7 +29,7 @@ export default function Prix() {
   const [q, setQ] = useState('')
   const { donnees: produits, setDonnees, erreur, recharger } = useCharger(() => api.get<Produit[]>('/api/produits'))
   const action = useAction()
-  const [nouveau, setNouveau] = useState({ nom: '', categorie: 'plat', unite: 'piece', prix: '' })
+  const [nouveau, setNouveau] = useState({ nom: '', categorie: 'privatisation', unite: 'forfait', prix: '' })
 
   // Arrivée depuis « Compléter le prix » d'un devis : ouvrir le bon onglet.
   useEffect(() => {
@@ -40,6 +40,8 @@ export default function Prix() {
     setTimeout(() => document.getElementById(`produit-${cible}`)?.scrollIntoView({ block: 'center' }), 50)
   }, [cible, produits])
 
+  // « Compléter le prix » d'un devis sur un plat : c'est dans la Carte.
+  const cibleCarte = cible && produits?.find((p) => p.id === cible && CARTE.includes(p.categorie))
   const nbManquants = produits?.filter((p) => p.prix_manquant && p.actif).length ?? 0
   const visibles = (produits ?? []).filter((p) =>
     (manquants ? p.prix_manquant && p.actif : onglet.split(',').includes(p.categorie)) &&
@@ -65,6 +67,8 @@ export default function Prix() {
     }
   }
 
+  if (cibleCarte) return <Navigate to={`/carte?produit=${cibleCarte.id}`} replace />
+
   return (
     <>
       <EnTete titre="Prix" sousTitre="Tout ce qui se vend, TVA comprise. Changer un prix ne modifie pas les devis déjà préparés : seulement les nouveaux et ceux qu'on recalcule.">
@@ -74,6 +78,7 @@ export default function Prix() {
       </EnTete>
       {!peutModifier && <div className="bandeau info">Lecture seule : seuls les administrateurs (ou le droit « prix ») modifient les prix.</div>}
       <Erreur message={erreur || action.erreur} />
+      {!manquants && <p className="aide">Les entrées, plats, desserts et suppléments sont dans le menu <Link to="/carte">Carte</Link>.</p>}
       {!manquants && (
         <div className="onglets">
           {ONGLETS.map((o) => <button key={o.cle} className={onglet === o.cle ? 'actif' : ''} onClick={() => setOnglet(o.cle)}>{o.libelle}</button>)}
@@ -133,7 +138,7 @@ export default function Prix() {
             <Champ libelle="Nom"><input value={nouveau.nom} onChange={(e) => setNouveau({ ...nouveau, nom: e.target.value })} required /></Champ>
             <Champ libelle="Catégorie">
               <select value={nouveau.categorie} onChange={(e) => setNouveau({ ...nouveau, categorie: e.target.value })}>
-                {Object.entries(NOMS_CATEGORIES).map(([cle, nom]) => <option key={cle} value={cle}>{nom}</option>)}
+                {Object.entries(NOMS_CATEGORIES).filter(([cle]) => !CARTE.includes(cle)).map(([cle, nom]) => <option key={cle} value={cle}>{nom}</option>)}
               </select>
             </Champ>
             <Champ libelle="Unité">
@@ -145,10 +150,9 @@ export default function Prix() {
             <Champ libelle="Prix TVA comprise" aide="Vide = à compléter plus tard."><input inputMode="decimal" placeholder="ex. 24,50" value={nouveau.prix} onChange={(e) => setNouveau({ ...nouveau, prix: e.target.value })} /></Champ>
             <button className="principal" disabled={action.enCours}>Ajouter</button>
           </div>
-          <p className="aide">Une nouvelle formule repas ou boissons se crée dans le menu Formules. Pour toute une carte : « Ajouter une liste » ci-dessous.</p>
+          <p className="aide">Une nouvelle formule repas ou boissons se crée dans le menu Formules. Les plats et suppléments s'ajoutent dans la <Link to="/carte">Carte</Link>.</p>
         </form>
       )}
-      {peutModifier && <AjouterListe apresImport={() => { recharger(); rechargerCompteur(); rechargerReferences() }} />}
     </>
   )
 }

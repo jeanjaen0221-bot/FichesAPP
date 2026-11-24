@@ -166,12 +166,13 @@ def creer_produit(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_con
     return catalogue.produit_dict(catalogue.creer_produit(session, acteur, corps(donnees)))
 
 
-def _liste(donnees: dict) -> tuple[str, Optional[str], bool]:
+def _liste(donnees: dict) -> tuple[str, Optional[str], bool, bool]:
     d = corps(donnees)
     texte = d.get("texte")
     if not isinstance(texte, str) or not texte.strip():
         raise ErreurMetier("champ_obligatoire", "Coller la liste des plats.", champ="texte")
-    return texte, d.get("categorie_defaut") or None, bool(d.get("remplacer_prix", False))
+    return (texte, d.get("categorie_defaut") or None, bool(d.get("remplacer_prix", False)),
+            bool(d.get("nouvelle_carte", False)))
 
 
 @router.post("/produits/liste/apercu")
@@ -200,6 +201,16 @@ async def lire_fichier_liste(fichier: UploadFile = File(...), acteur: Acteur = D
     if len(contenu) > 10 * 1024 * 1024:
         raise ErreurMetier("regle_metier", "Fichier trop lourd (10 Mo au maximum).", champ="fichier")
     return {"texte": texte_depuis_fichier(fichier.filename or "", contenu)}
+
+
+@router.delete("/produits/{produit_id}")
+def supprimer_produit(produit_id: str, acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    try:
+        pid = uuid.UUID(produit_id)
+    except ValueError:
+        raise introuvable("Produit")
+    catalogue.supprimer_produit(session, acteur, pid)
+    return {"ok": True}
 
 
 @router.patch("/produits/{produit_id}")

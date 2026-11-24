@@ -20,7 +20,7 @@ from ..domain.regles import (
     MODES_BOISSONS,
     UNITES,
 )
-from ..models import Fiche, FormuleBoissons, FormuleRepas, Produit
+from ..models import BonLigne, DevisLigne, Fiche, FicheLigne, FormuleBoissons, FormuleRepas, Produit
 from . import allergenes as allergenes_service
 from .contexte import Acteur, journaliser, lire_parametres
 
@@ -131,6 +131,37 @@ def modifier_produit(session: Session, acteur: Acteur, produit_id: uuid.UUID, do
     return produit
 
 
+def produit_utilise(session: Session, produit_id: uuid.UUID) -> Optional[str]:
+    """Où le produit sert déjà (fiche, devis, bon, formule), ou None s'il n'a jamais servi."""
+    usages = (
+        (FicheLigne.produit_id, "une fiche"), (Fiche.privatisation_id, "une fiche"),
+        (DevisLigne.produit_id, "un devis"), (BonLigne.produit_id, "un bon pour facturation"),
+        (FormuleRepas.produit_id, "une formule repas"), (FormuleBoissons.base_produit_id, "une formule boissons"),
+        (FormuleBoissons.coupe_produit_id, "une formule boissons"),
+    )
+    for colonne, ou in usages:
+        if session.scalar(select(func.count()).select_from(colonne.class_).where(colonne == produit_id)):
+            return ou
+    return None
+
+
+def supprimer_produit(session: Session, acteur: Acteur, produit_id: uuid.UUID) -> None:
+    """Seulement un produit qui n'a jamais servi (faute de frappe, ajout en trop) ; sinon on le retire
+    de la carte (désactivé) : les fiches, devis et bons qui l'ont gardent leur libellé et leur prix."""
+    acteur.exiger("prix")
+    produit = session.get(Produit, produit_id)
+    if produit is None:
+        raise introuvable("Produit")
+    ou = produit_utilise(session, produit.id)
+    if ou:
+        raise ErreurMetier("regle_metier", f"« {produit.nom} » est déjà utilisé dans {ou} : il ne peut pas être "
+                                           "supprimé. Le retirer de la carte (le désactiver) à la place.")
+    avant = produit_dict(produit)
+    session.delete(produit)
+    journaliser(session, acteur, "produit.supprimer", "produit", produit.id, f"{produit.nom} supprimé", avant, None)
+    session.commit()
+
+
 # --------------------------------------------------------------- ajouter une liste (import)
 
 # Ce que fera l'import pour chaque ligne. Le même calcul sert à l'aperçu et à l'import :
@@ -140,14 +171,22 @@ ACTIONS_IMPORT = {
     "completer_prix": "Prix ajouté",
     "remplacer_prix": "Prix remplacé",
     "reactiver": "Réactivé",
-    "inchange": "Déjà dans le menu",
+    "inchange": "Déjà sur la carte",
     "prix_different": "Prix différent (gardé)",
     "erreur": "Ignoré",
+    "desactiver": "Retiré de la carte",
 }
+ACTIONS_ECRITURE = ("creer", "completer_prix", "remplacer_prix", "reactiver", "desactiver")
 
 
 def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str] = None,
-                   remplacer_prix: bool = False) -> list[dict[str, Any]]:
+                   remplacer_prix: bool = False, nouvelle_carte: bool = False) -> list[dict[str, Any]]:
+    """Ce que fera l'import, ligne par ligne.
+
+    `nouvelle_carte` : la liste remplace la carte. Les produits actifs absents de la liste sont
+    retirés (désactivés), mais seulement dans les types présents dans la liste : coller les seuls
+    desserts ne retire ni les entrées ni les plats.
+    """
     from ..domain.import_carte import lire_liste
 
     existants: dict[tuple[str, str], Produit] = {
@@ -196,6 +235,17 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
                     ligne["message"] = "Produit désactivé : il sera réactivé."
         ligne["action_libelle"] = ACTIONS_IMPORT[ligne["action"]]
         sortie.append(ligne)
+    if nouvelle_carte:
+        presents = {(l["categorie"], cle(l["nom"])) for l in sortie if l["action"] != "erreur"}
+        types = {c for c, _ in presents}
+        for (categorie, k), p in sorted(existants.items(), key=lambda e: (e[0][0], e[1].ordre, e[1].nom)):
+            if categorie in types and p.actif and (categorie, k) not in presents:
+                sortie.append({
+                    "numero": None, "texte": "", "nom": p.nom, "categorie": categorie, "prix_centimes": p.prix_centimes,
+                    "prix": None, "produit_id": str(p.id), "prix_actuel": format_euros(p.prix_centimes),
+                    "action": "desactiver", "action_libelle": ACTIONS_IMPORT["desactiver"],
+                    "message": "Absent de la nouvelle carte. Les fiches et devis qui l'ont le gardent.",
+                })
     return sortie
 
 
@@ -204,17 +254,21 @@ def resume_liste(lignes: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defaut: Optional[str] = None,
-                   remplacer_prix: bool = False) -> list[dict[str, Any]]:
+                   remplacer_prix: bool = False, nouvelle_carte: bool = False) -> list[dict[str, Any]]:
     """Crée les nouveaux produits, complète ou remplace les prix, réactive. Tout ou rien.
 
     Un produit existant n'est jamais renommé ni changé de catégorie, et son prix n'est remplacé
     que si on le demande. Les lignes refusées sont ignorées (elles restent dans le rapport).
     """
     acteur.exiger("prix")
-    lignes = analyser_liste(session, texte, categorie_defaut, remplacer_prix)
-    a_faire = [l for l in lignes if l["action"] in ("creer", "completer_prix", "remplacer_prix", "reactiver")]
+    lignes = analyser_liste(session, texte, categorie_defaut, remplacer_prix, nouvelle_carte)
+    if nouvelle_carte and any(l["action"] == "erreur" for l in lignes):
+        # Une ligne illisible pourrait être un plat qu'on garde : on ne retire rien tant qu'elle n'est pas corrigée.
+        raise ErreurMetier("regle_metier", "Des lignes sont ignorées : les corriger (ou les effacer) avant de "
+                                           "remplacer la carte, pour ne retirer aucun plat par erreur.", champ="texte")
+    a_faire = [l for l in lignes if l["action"] in ACTIONS_ECRITURE]
     if not a_faire:
-        raise ErreurMetier("regle_metier", "Rien à importer : tous les produits sont déjà dans le menu Prix "
+        raise ErreurMetier("regle_metier", "Rien à importer : tous les produits sont déjà sur la carte "
                                            "ou les lignes sont refusées.", champ="texte")
     ordre = (session.scalar(select(func.max(Produit.ordre))) or 0) + 1
     for l in a_faire:
@@ -230,6 +284,12 @@ def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defau
             continue
         p = session.get(Produit, uuid.UUID(l["produit_id"]))
         avant = produit_dict(p)
+        if l["action"] == "desactiver":
+            p.actif = False
+            session.flush()
+            journaliser(session, acteur, "produit.modifier", "produit", p.id, f"{p.nom} retiré de la carte — nouvelle carte",
+                        avant, produit_dict(p))
+            continue
         if l["action"] in ("completer_prix", "remplacer_prix"):
             p.prix_centimes = l["prix_centimes"]
         p.actif = True
@@ -244,7 +304,8 @@ def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defau
     journaliser(session, acteur, "produit.importer", "produit", None,
                 f"Liste importée dans le menu Prix : {compte['creer']} nouveau(x), "
                 f"{compte['completer_prix'] + compte['remplacer_prix']} prix, {compte['reactiver']} réactivé(s), "
-                f"{compte['erreur']} ligne(s) ignorée(s)")
+                f"{compte['erreur']} ligne(s) ignorée(s)"
+                + (f", {compte['desactiver']} retiré(s) de la carte" if nouvelle_carte else ""))
     session.commit()
     return lignes
 
