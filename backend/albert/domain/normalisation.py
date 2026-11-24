@@ -152,18 +152,27 @@ _ALIAS_ALLERGENES = {
 }
 
 
-def lire_allergenes(valeurs: Any) -> list[str]:
+def cle_allergene(libelle: Any) -> str:
+    """Clé d'un allergène ajouté dans Paramètres : « Kiwi » → « kiwi », « Fruits rouges » → « fruits_rouges »."""
+    return re.sub(r"[^a-z0-9]+", "_", cle(libelle)).strip("_")[:50]
+
+
+def lire_allergenes(valeurs: Any, supplementaires: Optional[dict[str, str]] = None) -> list[str]:
+    """Clés d'allergènes. `supplementaires` : allergènes ajoutés dans Paramètres ({clé: libellé})."""
     if valeurs is None:
         return []
     if isinstance(valeurs, str):
         valeurs = [p for p in re.split(r"[,;/\n]", valeurs) if p.strip()]
+    connus = {**ALLERGENES, **(supplementaires or {})}
+    par_libelle = {cle_allergene(v): k for k, v in connus.items()}
     sortie: list[str] = []
     inconnus: list[str] = []
     for brut in valeurs:
         k = cle(brut).replace("_", " ")
         k = re.sub(r"^(sans|allergie|allergique|intolerance|intolerant)\s+((a la|au|aux|a|de|du|des)\s+)?", "", k)
         candidat = _ALIAS_ALLERGENES.get(k, k).replace(" ", "_")
-        if candidat in ALLERGENES:
+        candidat = candidat if candidat in connus else par_libelle.get(cle_allergene(candidat), candidat)
+        if candidat in connus:
             if candidat not in sortie:
                 sortie.append(candidat)
         else:
@@ -172,9 +181,9 @@ def lire_allergenes(valeurs: Any) -> list[str]:
         raise ErreurMetier(
             "valeur_non_permise",
             f"Allergène(s) inconnu(s) : {', '.join(inconnus)}. S'il ne fait pas partie de la liste, "
-            "l'écrire dans les notes cuisine.",
+            "l'écrire dans les notes cuisine (ou l'ajouter dans Paramètres).",
             champ="allergenes",
-            valeurs_permises=list(ALLERGENES),
+            valeurs_permises=list(connus),
         )
     return sortie
 

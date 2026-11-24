@@ -8,7 +8,8 @@ Usage (la base v2 doit être migrée : `alembic upgrade head`) :
 Relançable sans risque : chaque élément repris porte une clé (« reprise:<id> ») ou est
 reconnu par son nom, et n'est jamais créé deux fois. L'ancienne base n'est que lue.
 
-Ce qui est repris : comptes (mêmes mots de passe), plats → menu Prix (prix à compléter),
+Ce qui est repris : comptes (mêmes mots de passe), allergènes ajoutés dans Paramètres (avec
+leur icône), liaison Gmail, plats → menu Prix (prix à compléter),
 suppléments → menu Prix, clients (depuis la facturation et les réservations), réservations →
 fiches (lignes, allergènes, formules, notes), plaintes, notes, boissons, fournisseurs, prix
 d'achat, bons de commande, plan de salle de base. Les feuilles de facturation ne deviennent
@@ -27,13 +28,15 @@ from sqlalchemy.orm import Session
 
 from .db import FabriqueSession
 from .domain.erreurs import ErreurMetier
-from .domain.normalisation import choisir, cle, cle_nom_client, lire_allergenes, lire_tva
+from .domain.normalisation import choisir, cle, cle_allergene, cle_nom_client, lire_allergenes, lire_tva
 from .models import (
+    Allergene,
     Boisson,
     BoissonFournisseur,
     BonCommande,
     BonCommandeLigne,
     Client,
+    ConnexionGmail,
     Fiche,
     FicheLigne,
     Fournisseur,
@@ -43,7 +46,7 @@ from .models import (
     Produit,
     Utilisateur,
 )
-from .services import catalogue, fiches
+from .services import allergenes as allergenes_service, catalogue, fiches
 from .services.contexte import SYSTEME, journaliser, prochain_numero
 from .services.initialisation import initialiser_catalogue
 
@@ -110,6 +113,8 @@ def _json(v: Any) -> Any:
 def reprendre(source: Engine, session: Session, rapport: Rapport) -> None:
     initialiser_catalogue(session)
     _comptes(source, session, rapport)
+    _allergenes(source, session, rapport)
+    _gmail(source, session, rapport)
     _produits(source, session, rapport)
     _fiches(source, session, rapport)
     _plaintes_notes(source, session, rapport)
@@ -133,6 +138,57 @@ def _comptes(source: Engine, session: Session, rapport: Rapport) -> None:
                                 droits=["prix"] if role == "admin" or "menu" in droits else []))
         existants.add(email)
         rapport.compter("comptes")
+
+
+def _allergenes(source: Engine, session: Session, rapport: Rapport) -> None:
+    """Allergènes ajoutés dans les Paramètres de l'ancienne version (table « allergen »).
+
+    Les 14 allergènes réglementaires existent déjà (avec leurs icônes) : seuls les autres sont
+    repris, avec la même clé pour que les fiches les retrouvent. Une icône illisible est ignorée.
+    """
+    existants = allergenes_service.tous(session)
+    for a in _lignes(source, "allergen"):
+        k = cle_allergene(a.get("key"))
+        if not k or k in existants:
+            continue
+        libelle = (a.get("label") or a.get("key") or k).strip()[:100]
+        icone = a.get("icon_bytes")
+        if icone is not None and not isinstance(icone, bytes):
+            icone = bytes(icone)  # memoryview (PostgreSQL)
+        if icone:
+            try:
+                icone = allergenes_service.normaliser_icone(icone)
+            except ErreurMetier:
+                icone = None
+                rapport.noter(f"Icône illisible pour l'allergène « {libelle} » : à remettre dans Paramètres.")
+        session.add(Allergene(cle=k, libelle=libelle, icone=icone or None))
+        existants[k] = libelle
+        rapport.compter("allergènes ajoutés")
+    session.flush()
+
+
+def _gmail(source: Engine, session: Session, rapport: Rapport) -> None:
+    """Liaison de la boîte Gmail : le jeton de rafraîchissement est rechiffré avec SECRET_KEY de la v2.
+
+    Il ne fonctionne que si la v2 utilise le même client Google (GMAIL_CLIENT_ID et
+    GMAIL_CLIENT_SECRET) que l'ancienne version. Une boîte déjà reliée dans la v2 n'est pas remplacée.
+    """
+    from .services.gmail import _chiffreur
+
+    lignes = [g for g in _lignes(source, "gmailtoken") if (g.get("refresh_token") or "").strip()]
+    if not lignes:
+        return
+    if session.get(ConnexionGmail, 1) is not None:
+        rapport.noter("Gmail : une boîte est déjà reliée dans la v2, la liaison de l'ancienne version n'est pas reprise.")
+        return
+    g = lignes[0]
+    session.add(ConnexionGmail(id=1, email=(g.get("email") or "").strip(), relie_par="reprise",
+                               jeton_chiffre=_chiffreur().encrypt(g["refresh_token"].strip().encode()).decode()))
+    session.flush()
+    rapport.compter("liaison Gmail")
+    rapport.noter("Gmail : liaison reprise. Garder les mêmes GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET que l'ancienne "
+                  "version ; l'ancien accès autorisait aussi les brouillons : délier puis relier dans Paramètres "
+                  "pour le limiter à la lecture.")
 
 
 def _produit(session: Session, categorie: str, nom: str, unite: str, actif: bool = True) -> Produit:
@@ -180,6 +236,7 @@ def _fiches(source: Engine, session: Session, rapport: Rapport) -> None:
     formules_boissons = [(f.nom, f) for f in catalogue.lister_formules_boissons(session)]
     deja = set(session.scalars(select(Fiche.cle_idempotence).where(Fiche.cle_idempotence.like("reprise:%"))))
     aujourd_hui = fiches.aujourd_hui()
+    allergenes_ajoutes = allergenes_service.supplementaires(session)
 
     for r in _lignes(source, "reservation"):
         rid = _uuid(r["id"])
@@ -210,12 +267,12 @@ def _fiches(source: Engine, session: Session, rapport: Rapport) -> None:
 
         notes_cuisine: list[str] = []
         try:
-            allergenes = lire_allergenes(r.get("allergens") or "")
+            allergenes = lire_allergenes(r.get("allergens") or "", allergenes_ajoutes)
         except ErreurMetier:
             allergenes = []
             for brut in (r.get("allergens") or "").split(","):
                 try:
-                    allergenes += [a for a in lire_allergenes([brut]) if a not in allergenes]
+                    allergenes += [a for a in lire_allergenes([brut], allergenes_ajoutes) if a not in allergenes]
                 except ErreurMetier:
                     if brut.strip():
                         notes_cuisine.append(f"Allergie : {brut.strip()}")

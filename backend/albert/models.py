@@ -444,6 +444,17 @@ class Plainte(Base):
     fiche: Mapped[Optional[Fiche]] = relationship()
 
 
+class Allergene(Base):
+    """Allergène ajouté dans Paramètres, en plus des 14 allergènes réglementaires (domain/normalisation.py)."""
+
+    __tablename__ = "allergene"
+
+    cle: Mapped[str] = mapped_column(String(50), primary_key=True)
+    libelle: Mapped[str] = mapped_column(String(100))
+    icone: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    cree_le: Mapped[datetime] = _cree()
+
+
 class Note(Base):
     """Post-it partagé de l'équipe."""
 

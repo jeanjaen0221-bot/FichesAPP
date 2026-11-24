@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..domain.argent import format_euros, lire_euros
 from ..domain.erreurs import ErreurMetier, introuvable
-from ..domain.normalisation import ALLERGENES, cle, lire_allergenes, texte_court
+from ..domain.normalisation import cle, lire_allergenes, texte_court
 from ..domain.regles import (
     CATEGORIES_PRODUIT,
     COMPORTEMENTS_FORMULE,
@@ -21,6 +21,7 @@ from ..domain.regles import (
     UNITES,
 )
 from ..models import Fiche, FormuleBoissons, FormuleRepas, Produit
+from . import allergenes as allergenes_service
 from .contexte import Acteur, journaliser, lire_parametres
 
 COULEURS_BOISSONS = ("bleu", "rouge", "cyan", "violet", "vert", "ambre", "indigo", "gris")
@@ -60,7 +61,7 @@ def compter_prix_manquants(session: Session) -> int:
     ) or 0
 
 
-def _valider_produit(donnees: dict[str, Any], partiel: bool) -> dict[str, Any]:
+def _valider_produit(session: Session, donnees: dict[str, Any], partiel: bool) -> dict[str, Any]:
     sortie: dict[str, Any] = {}
     if "nom" in donnees or not partiel:
         sortie["nom"] = texte_court(donnees.get("nom"), "nom", 200, obligatoire=True)
@@ -81,7 +82,7 @@ def _valider_produit(donnees: dict[str, Any], partiel: bool) -> dict[str, Any]:
     elif "prix_centimes" in donnees:
         sortie["prix_centimes"] = lire_euros(donnees["prix_centimes"]) if donnees["prix_centimes"] is not None else None
     if "allergenes" in donnees:
-        sortie["allergenes"] = lire_allergenes(donnees["allergenes"])
+        sortie["allergenes"] = lire_allergenes(donnees["allergenes"], allergenes_service.supplementaires(session))
     for champ in ("actif",):
         if champ in donnees:
             sortie[champ] = bool(donnees[champ])
@@ -99,7 +100,7 @@ def _doublon_produit(session: Session, categorie: str, nom: str, sauf: Optional[
 
 def creer_produit(session: Session, acteur: Acteur, donnees: dict[str, Any]) -> Produit:
     acteur.exiger("prix")
-    valeurs = _valider_produit(donnees, partiel=False)
+    valeurs = _valider_produit(session, donnees, partiel=False)
     _doublon_produit(session, valeurs["categorie"], valeurs["nom"])
     produit = Produit(**valeurs)
     session.add(produit)
@@ -116,7 +117,7 @@ def modifier_produit(session: Session, acteur: Acteur, produit_id: uuid.UUID, do
     if produit is None:
         raise introuvable("Produit")
     avant = produit_dict(produit)
-    valeurs = _valider_produit(donnees, partiel=True)
+    valeurs = _valider_produit(session, donnees, partiel=True)
     if "nom" in valeurs or "categorie" in valeurs:
         _doublon_produit(session, valeurs.get("categorie", produit.categorie), valeurs.get("nom", produit.nom), produit.id)
     for k, v in valeurs.items():
@@ -317,7 +318,7 @@ def references(session: Session) -> dict[str, Any]:
         "espaces": list(ESPACES),
         "types_ligne": [{"cle": "entree", "libelle": "entrée"}, {"cle": "plat", "libelle": "plat"},
                         {"cle": "dessert", "libelle": "dessert"}, {"cle": "supplement", "libelle": "supplément"}],
-        "allergenes": [{"cle": k, "libelle": v} for k, v in ALLERGENES.items()],
+        "allergenes": [{"cle": k, "libelle": v} for k, v in allergenes_service.tous(session).items()],
         "statuts_fiche": [{"cle": k, "libelle": v} for k, v in LIBELLES_STATUTS_FICHE.items()],
         "heures_proposees": params.get("heures_proposees", []),
         "unites": [{"cle": k, "libelle": v} for k, v in LIBELLES_UNITES.items()],

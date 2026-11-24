@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -187,6 +187,57 @@ def revoquer_connexion(connexion_id: str, acteur: Acteur = Depends(acteur_connec
     journaliser(session, acteur, "chatgpt.revoquer", "connexion_chatgpt", c.id, f"{c.client_nom} ({c.utilisateur.email})")
     session.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------- allergènes ajoutés (Paramètres)
+
+@router.get("/allergenes")
+def lister_allergenes(acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    from ..services import allergenes
+
+    acteur.exiger("lecture")
+    return allergenes.lister(session)
+
+
+@router.post("/allergenes", status_code=201)
+async def creer_allergene(libelle: str = Form(...), icone: Optional[UploadFile] = File(None),
+                          acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    from ..services import allergenes
+
+    contenu = await icone.read() if icone is not None else None
+    return allergenes.allergene_dict(allergenes.creer(session, acteur, libelle, icone=contenu or None))
+
+
+@router.post("/allergenes/{cle}")
+async def modifier_allergene(cle: str, libelle: Optional[str] = Form(None), icone: Optional[UploadFile] = File(None),
+                             retirer_icone: bool = Form(False), acteur: Acteur = Depends(acteur_connecte),
+                             session: Session = Depends(session_db)):
+    from ..services import allergenes
+
+    contenu = await icone.read() if icone is not None else None
+    return allergenes.allergene_dict(allergenes.modifier(session, acteur, cle, libelle, contenu or None, retirer_icone))
+
+
+@router.delete("/allergenes/{cle}")
+def supprimer_allergene(cle: str, acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    from ..services import allergenes
+
+    allergenes.supprimer(session, acteur, cle)
+    return {"ok": True}
+
+
+@router.get("/allergenes/{cle}/icone")
+def icone_allergene(cle: str, acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    from fastapi.responses import Response
+
+    from ..domain.erreurs import introuvable
+    from ..models import Allergene
+
+    acteur.exiger("lecture")
+    a = session.get(Allergene, cle)
+    if a is None or a.icone is None:
+        raise introuvable("Icône")
+    return Response(a.icone, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
 # --------------------------------------------------------------- Gmail (lecture seule, pour ChatGPT)
