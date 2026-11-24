@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, euros } from '../api'
+import AjouterListe from '../composants/AjouterListe'
 import { Champ, EnTete, Erreur, useAction, useCharger } from '../composants/ui'
 import { useSession } from '../contexte'
 import type { Produit } from '../types'
@@ -144,9 +145,10 @@ export default function Prix() {
             <Champ libelle="Prix TVA comprise" aide="Vide = à compléter plus tard."><input inputMode="decimal" placeholder="ex. 24,50" value={nouveau.prix} onChange={(e) => setNouveau({ ...nouveau, prix: e.target.value })} /></Champ>
             <button className="principal" disabled={action.enCours}>Ajouter</button>
           </div>
-          <p className="aide">Une nouvelle formule repas ou boissons se crée dans le menu Formules.</p>
+          <p className="aide">Une nouvelle formule repas ou boissons se crée dans le menu Formules. Pour toute une carte : « Ajouter une liste » ci-dessous.</p>
         </form>
       )}
+      {peutModifier && <AjouterListe apresImport={() => { recharger(); rechargerCompteur(); rechargerReferences() }} />}
     </>
   )
 }

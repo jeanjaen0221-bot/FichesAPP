@@ -131,6 +131,124 @@ def modifier_produit(session: Session, acteur: Acteur, produit_id: uuid.UUID, do
     return produit
 
 
+# --------------------------------------------------------------- ajouter une liste (import)
+
+# Ce que fera l'import pour chaque ligne. Le même calcul sert à l'aperçu et à l'import :
+# l'équipe importe exactement ce qu'elle a vu (le texte est relu par le serveur, jamais l'aperçu).
+ACTIONS_IMPORT = {
+    "creer": "Nouveau",
+    "completer_prix": "Prix ajouté",
+    "remplacer_prix": "Prix remplacé",
+    "reactiver": "Réactivé",
+    "inchange": "Déjà dans le menu",
+    "prix_different": "Prix différent (gardé)",
+    "erreur": "Ignoré",
+}
+
+
+def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str] = None,
+                   remplacer_prix: bool = False) -> list[dict[str, Any]]:
+    from ..domain.import_carte import lire_liste
+
+    existants: dict[tuple[str, str], Produit] = {
+        (p.categorie, cle(p.nom)): p
+        for p in session.scalars(select(Produit).where(Produit.categorie.in_(("entree", "plat", "dessert", "supplement"))))
+    }
+    par_nom: dict[str, list[Produit]] = {}
+    for (_, k), p in existants.items():
+        par_nom.setdefault(k, []).append(p)
+    sortie = []
+    for lue in lire_liste(texte, categorie_defaut or None):
+        ligne: dict[str, Any] = {
+            "numero": lue.numero, "texte": lue.texte, "nom": lue.nom, "categorie": lue.categorie,
+            "prix_centimes": lue.prix_centimes, "prix": format_euros(lue.prix_centimes) if lue.prix_centimes is not None else None,
+            "produit_id": None, "prix_actuel": None, "message": lue.erreur,
+        }
+        if lue.erreur:
+            ligne["action"] = "erreur"
+        else:
+            p = existants.get((lue.categorie, cle(lue.nom)))  # type: ignore[arg-type]
+            if p is None:
+                ligne["action"] = "creer"
+                ailleurs = [LIBELLES_CATEGORIES[q.categorie].lower() for q in par_nom.get(cle(lue.nom), [])]
+                messages = ["Prix à compléter."] if lue.prix_centimes is None else []
+                if ailleurs:
+                    messages.append(f"Existe déjà dans : {', '.join(ailleurs)}. Vérifier le type.")
+                ligne["message"] = " ".join(messages) or None
+            else:
+                ligne.update(produit_id=str(p.id), nom=p.nom, prix_actuel=format_euros(p.prix_centimes))
+                nouveau_prix = lue.prix_centimes is not None and lue.prix_centimes != p.prix_centimes
+                if nouveau_prix and p.prix_centimes is None:
+                    ligne["action"] = "completer_prix"
+                elif nouveau_prix and remplacer_prix:
+                    ligne["action"] = "remplacer_prix"
+                elif not p.actif:
+                    ligne["action"] = "reactiver"
+                    if nouveau_prix:
+                        ligne["message"] = f"Prix gardé : {format_euros(p.prix_centimes)}."
+                elif nouveau_prix:
+                    ligne["action"] = "prix_different"
+                    ligne["message"] = (f"Le menu Prix dit {format_euros(p.prix_centimes)} : prix gardé "
+                                        "(cocher « remplacer les prix » pour prendre celui de la liste).")
+                else:
+                    ligne["action"] = "inchange"
+                if not p.actif and ligne["action"] in ("completer_prix", "remplacer_prix"):
+                    ligne["message"] = "Produit désactivé : il sera réactivé."
+        ligne["action_libelle"] = ACTIONS_IMPORT[ligne["action"]]
+        sortie.append(ligne)
+    return sortie
+
+
+def resume_liste(lignes: list[dict[str, Any]]) -> dict[str, int]:
+    return {action: sum(1 for l in lignes if l["action"] == action) for action in ACTIONS_IMPORT}
+
+
+def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defaut: Optional[str] = None,
+                   remplacer_prix: bool = False) -> list[dict[str, Any]]:
+    """Crée les nouveaux produits, complète ou remplace les prix, réactive. Tout ou rien.
+
+    Un produit existant n'est jamais renommé ni changé de catégorie, et son prix n'est remplacé
+    que si on le demande. Les lignes refusées sont ignorées (elles restent dans le rapport).
+    """
+    acteur.exiger("prix")
+    lignes = analyser_liste(session, texte, categorie_defaut, remplacer_prix)
+    a_faire = [l for l in lignes if l["action"] in ("creer", "completer_prix", "remplacer_prix", "reactiver")]
+    if not a_faire:
+        raise ErreurMetier("regle_metier", "Rien à importer : tous les produits sont déjà dans le menu Prix "
+                                           "ou les lignes sont refusées.", champ="texte")
+    ordre = (session.scalar(select(func.max(Produit.ordre))) or 0) + 1
+    for l in a_faire:
+        if l["action"] == "creer":
+            p = Produit(nom=l["nom"], categorie=l["categorie"], unite="piece", prix_centimes=l["prix_centimes"],
+                        actif=True, ordre=ordre)
+            ordre += 1
+            session.add(p)
+            session.flush()
+            l["produit_id"] = str(p.id)
+            journaliser(session, acteur, "produit.creer", "produit", p.id,
+                        f"{p.nom} ({format_euros(p.prix_centimes)}) — ajouté par liste", None, produit_dict(p))
+            continue
+        p = session.get(Produit, uuid.UUID(l["produit_id"]))
+        avant = produit_dict(p)
+        if l["action"] in ("completer_prix", "remplacer_prix"):
+            p.prix_centimes = l["prix_centimes"]
+        p.actif = True
+        session.flush()
+        resume = p.nom
+        if avant["prix_centimes"] != p.prix_centimes:
+            resume += f" : {avant['prix']} → {format_euros(p.prix_centimes)}"
+        if not avant["actif"]:
+            resume += " (réactivé)"
+        journaliser(session, acteur, "produit.modifier", "produit", p.id, resume + " — liste", avant, produit_dict(p))
+    compte = resume_liste(lignes)
+    journaliser(session, acteur, "produit.importer", "produit", None,
+                f"Liste importée dans le menu Prix : {compte['creer']} nouveau(x), "
+                f"{compte['completer_prix'] + compte['remplacer_prix']} prix, {compte['reactiver']} réactivé(s), "
+                f"{compte['erreur']} ligne(s) ignorée(s)")
+    session.commit()
+    return lignes
+
+
 # --------------------------------------------------------------- formules
 
 def formule_repas_dict(f: FormuleRepas) -> dict[str, Any]:
