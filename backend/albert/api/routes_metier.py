@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, File, UploadFile
 from sqlalchemy.orm import Session
 
 from ..domain.erreurs import ErreurMetier, introuvable
@@ -164,6 +164,42 @@ def compter_manquants(acteur: Acteur = Depends(acteur_connecte), session: Sessio
 def creer_produit(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_connecte),
                   session: Session = Depends(session_db)):
     return catalogue.produit_dict(catalogue.creer_produit(session, acteur, corps(donnees)))
+
+
+def _liste(donnees: dict) -> tuple[str, Optional[str], bool]:
+    d = corps(donnees)
+    texte = d.get("texte")
+    if not isinstance(texte, str) or not texte.strip():
+        raise ErreurMetier("champ_obligatoire", "Coller la liste des plats.", champ="texte")
+    return texte, d.get("categorie_defaut") or None, bool(d.get("remplacer_prix", False))
+
+
+@router.post("/produits/liste/apercu")
+def apercu_liste(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_connecte),
+                 session: Session = Depends(session_db)):
+    """Ce que ferait l'import, ligne par ligne. N'écrit rien."""
+    acteur.exiger("prix")
+    lignes = catalogue.analyser_liste(session, *_liste(donnees))
+    return {"lignes": lignes, "resume": catalogue.resume_liste(lignes)}
+
+
+@router.post("/produits/liste")
+def importer_liste(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_connecte),
+                   session: Session = Depends(session_db)):
+    lignes = catalogue.importer_liste(session, acteur, *_liste(donnees))
+    return {"lignes": lignes, "resume": catalogue.resume_liste(lignes)}
+
+
+@router.post("/produits/liste/fichier")
+async def lire_fichier_liste(fichier: UploadFile = File(...), acteur: Acteur = Depends(acteur_connecte)):
+    """Texte d'une carte (PDF, texte, CSV), à relire et corriger avant l'aperçu. N'écrit rien."""
+    from ..domain.import_carte import texte_depuis_fichier
+
+    acteur.exiger("prix")
+    contenu = await fichier.read()
+    if len(contenu) > 10 * 1024 * 1024:
+        raise ErreurMetier("regle_metier", "Fichier trop lourd (10 Mo au maximum).", champ="fichier")
+    return {"texte": texte_depuis_fichier(fichier.filename or "", contenu)}
 
 
 @router.patch("/produits/{produit_id}")
