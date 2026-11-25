@@ -93,6 +93,8 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
         donnent le type des lignes qui suivent ; le prix TVA comprise peut être en fin de ligne (« … 14,50 € ») ou après
         un « | » : <code>Dame blanche | dessert | 8,00</code>. Sans prix, le produit est ajouté « à compléter ».
         Un produit déjà sur la carte n'est jamais créé deux fois.
+        D'un PDF, seules les parties Entrées, Plats, Desserts et Suppléments sont reprises (le titre, les formules,
+        les conditions sont laissés) : relire le texte avant l'aperçu et effacer ce qui n'est pas un plat.
       </p>
       <div className="ligne-champs">
         <Champ libelle="Type des lignes sans type" aide="Avant le premier intertitre.">
