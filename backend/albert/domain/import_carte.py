@@ -160,6 +160,82 @@ def _recoller_lettres(s: str) -> str:
     return re.sub(r"\b(?:\w ){2,}\w\b", lambda m: m.group(0).replace(" ", ""), s)
 
 
+def _texte_page(page) -> str:
+    """Texte d'une page dans l'ordre de la mise en page.
+
+    Le mode « layout » garde les lignes telles qu'on les voit ; le mode simple, lui, rend parfois
+    un mot par ligne (PDF exportés de Word). On garde le simple seulement si le premier échoue.
+    """
+    try:
+        return page.extract_text(extraction_mode="layout") or ""
+    except Exception:  # noqa: BLE001 - pypdf peut lever bien des erreurs sur un PDF exotique
+        return page.extract_text() or ""
+
+
+def _remettre_en_lignes(texte: str) -> str:
+    """Une ligne par plat : espaces de mise en page réduits, plat coupé sur deux lignes recollé.
+
+    Une ligne qui commence par une minuscule prolonge la précédente (« … conﬁture de pomme de pin,
+    graine » / « de courge caramélisée »), sauf si la précédente finit par un prix ou est un intertitre.
+    """
+    sortie: list[str] = []
+    for brute in texte.splitlines():
+        ligne = re.sub(r"\s+", " ", _recoller_lettres(brute)).strip()
+        precedente = sortie[-1] if sortie else ""
+        if not ligne:
+            if precedente:
+                sortie.append("")
+            continue
+        if (precedente and ligne[0].islower() and not _intertitre(ligne) and not _intertitre(precedente)
+                and _prix_en_fin_sans_erreur(precedente) is None):
+            sortie[-1] = f"{precedente} {ligne}"
+        else:
+            sortie.append(ligne)
+    return "\n".join(_garder_la_carte(sortie)).strip()
+
+
+# Le début d'une partie qui n'est pas la carte : texte de présentation, formules, conditions…
+_HORS_CARTE = re.compile(r"@|\?|www\.|https?://", re.IGNORECASE)
+_TITRES_HORS_CARTE = {
+    "formule", "formules", "boisson", "boissons", "vin", "vins", "cocktail", "cocktails", "condition", "conditions",
+    "contact", "contacts", "information", "informations", "allergie", "allergies", "paiement", "annulation",
+    "reservation", "reservations", "horaire", "horaires", "privatisation",
+}
+
+
+def _garder_la_carte(lignes: list[str]) -> list[str]:
+    """Garde les parties « Entrées / Plats / Desserts / Suppléments » d'un PDF et laisse le reste.
+
+    Ce qui précède le premier intertitre (titre du document) est laissé, et une partie s'arrête
+    sur une ligne qui n'est visiblement pas un plat (adresse e-mail, site, question) ou sur un
+    titre comme « Formules », « Boissons », « Conditions » ; elle reprend au prochain intertitre.
+    Sans aucun intertitre, le texte est gardé entier (à relire avant l'aperçu).
+    """
+    if not any(_intertitre(l) for l in lignes if l):
+        return lignes
+    gardees: list[str] = []
+    dans_la_carte = False
+    for ligne in lignes:
+        if ligne and _intertitre(ligne):
+            dans_la_carte = True
+        elif ligne and dans_la_carte:
+            premier_mot = re.sub(r"[^a-z]", " ", cle(ligne)).split()[:1]
+            titre_hors_carte = (len(ligne) <= 60 and premier_mot and premier_mot[0] in _TITRES_HORS_CARTE
+                                and _prix_en_fin_sans_erreur(ligne) is None)
+            if _HORS_CARTE.search(ligne) or titre_hors_carte:
+                dans_la_carte = False
+        if dans_la_carte and (ligne or (gardees and gardees[-1])):
+            gardees.append(ligne)
+    return gardees
+
+
+def _prix_en_fin_sans_erreur(ligne: str) -> Optional[int]:
+    try:
+        return _prix_en_fin(ligne)[1]
+    except ErreurMetier:
+        return None
+
+
 def texte_depuis_fichier(nom_fichier: str, contenu: bytes) -> str:
     """Texte d'une carte en PDF, en texte ou en CSV, à relire avant l'aperçu."""
     nom = (nom_fichier or "").lower()
@@ -169,10 +245,10 @@ def texte_depuis_fichier(nom_fichier: str, contenu: bytes) -> str:
 
         try:
             pages = PdfReader(io.BytesIO(contenu)).pages
-            texte = "\n".join((page.extract_text() or "") for page in pages)
+            texte = "\n".join(_texte_page(page) for page in pages)
         except (PdfReadError, ValueError, KeyError):
             raise ErreurMetier("valeur_non_permise", "PDF illisible.", champ="fichier")
-        texte = "\n".join(_recoller_lettres(l) for l in texte.splitlines())
+        texte = _remettre_en_lignes(texte)
         if not texte.strip():
             raise ErreurMetier("regle_metier", "Ce PDF ne contient pas de texte (image scannée ?) : "
                                                "copier la carte à la main.", champ="fichier")

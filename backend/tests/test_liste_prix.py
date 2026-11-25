@@ -86,6 +86,37 @@ def test_fichiers_texte_csv_et_pdf():
         texte_depuis_fichier("carte.pdf", b"%PDF-1.4 abime")
 
 
+def test_pdf_exporte_de_word_un_plat_par_ligne_et_rien_que_la_carte():
+    """Un PDF de Word écrit chaque mot à part : on relit la mise en page, une ligne par plat."""
+    tampon = io.BytesIO()
+    page = canvas.Canvas(tampon)
+    y = 800
+
+    def ligne(texte, x=72, saut=20):
+        nonlocal y
+        for mot in texte.split():  # un mot = un bloc de texte, comme Word
+            page.drawString(x, y, mot)
+            x += page.stringWidth(mot) + 6
+        y -= saut
+
+    ligne("menu de groupe été", saut=40)
+    ligne("entrées", saut=30)
+    ligne("Velouté de potimarron et châtaignes, espuma de pain brûlé (v)", saut=30)
+    ligne("dessert", saut=30)
+    ligne("Donuts au potiron, glace au potimarron, confiture de pomme de pin, graine", saut=14)
+    ligne("de courge caramélisée, crumble au sumac", saut=30)
+    ligne("Contactez info@albert.example", saut=30)
+    ligne("formules boissons", saut=30)
+    ligne("all-in-arrangement 20", saut=30)
+    page.save()
+    texte = texte_depuis_fichier("menu.pdf", tampon.getvalue())
+    assert _lu(texte) == [
+        ("Velouté de potimarron et châtaignes, espuma de pain brûlé (v)", "entree", None, None),
+        ("Donuts au potiron, glace au potimarron, confiture de pomme de pin, graine de courge caramélisée, "
+         "crumble au sumac", "dessert", None, None),
+    ]
+
+
 def _produit(session, nom, categorie, prix, actif=True):
     p = Produit(nom=nom, categorie=categorie, unite="piece", prix_centimes=prix, actif=actif)
     session.add(p)
