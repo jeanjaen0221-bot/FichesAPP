@@ -197,6 +197,13 @@ def mettre_carte_de_cote(acteur: Acteur = Depends(acteur_connecte), session: Ses
     return {"nombre": catalogue.mettre_carte_de_cote(session, acteur)}
 
 
+@router.post("/produits/carte/remettre")
+def remettre_sur_la_carte(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_connecte),
+                          session: Session = Depends(session_db)):
+    """Remet sur la carte tous les produits mis de côté d'un type."""
+    return {"nombre": catalogue.remettre_sur_la_carte(session, acteur, str(donnees.get("categorie") or ""))}
+
+
 @router.post("/produits/liste/fichier")
 async def lire_fichier_liste(fichier: UploadFile = File(...), acteur: Acteur = Depends(acteur_connecte)):
     """Texte d'une carte (PDF, texte, CSV), à relire et corriger avant l'aperçu. N'écrit rien."""

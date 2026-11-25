@@ -82,7 +82,8 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
       </div>
       {nouvelleCarte ? (
         <p className="aide">
-          <strong>Tous les plats actuels absents de la liste sont mis de côté</strong> (entrées, plats, desserts et suppléments).
+          <strong>Toutes les entrées, plats et desserts actuels absents de la liste sont mis de côté.</strong> Les suppléments
+          restent tous (ceux de la liste sont ajoutés ou mis à jour).
           Rien n'est supprimé : ils restent dans « Mis de côté », les fiches et devis qui les ont les gardent, et un plat
           repris dans la nouvelle carte revient avec son prix.
         </p>
