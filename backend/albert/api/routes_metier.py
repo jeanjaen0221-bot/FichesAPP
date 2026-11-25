@@ -191,6 +191,12 @@ def importer_liste(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_co
     return {"lignes": lignes, "resume": catalogue.resume_liste(lignes)}
 
 
+@router.post("/produits/carte/mettre-de-cote")
+def mettre_carte_de_cote(acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    """Met toute la carte actuelle de côté (avant d'en saisir une nouvelle)."""
+    return {"nombre": catalogue.mettre_carte_de_cote(session, acteur)}
+
+
 @router.post("/produits/liste/fichier")
 async def lire_fichier_liste(fichier: UploadFile = File(...), acteur: Acteur = Depends(acteur_connecte)):
     """Texte d'une carte (PDF, texte, CSV), à relire et corriger avant l'aperçu. N'écrit rien."""

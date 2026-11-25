@@ -33,7 +33,8 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
   const [texte, setTexte] = useState('')
   const [typeDefaut, setTypeDefaut] = useState('')
   const [remplacer, setRemplacer] = useState(false)
-  const [nouvelleCarte, setNouvelleCarte] = useState(false)
+  // Quand la carte change, elle change entièrement : par défaut, la liste collée remplace la carte.
+  const [nouvelleCarte, setNouvelleCarte] = useState(true)
   const [apercu, setApercu] = useState<Resultat | null>(null)
   const [fait, setFait] = useState<Resultat | null>(null)
   const [voirTout, setVoirTout] = useState(false)
@@ -74,7 +75,18 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
 
   return (
     <section className="carte">
-      <h2>Ajouter une liste ou changer de carte</h2>
+      <h2>Changer de carte ou ajouter une liste</h2>
+      <div className="onglets">
+        <button type="button" className={nouvelleCarte ? 'actif' : ''} onClick={() => changer(() => setNouvelleCarte(true))}>Nouvelle carte (remplace l'actuelle)</button>
+        <button type="button" className={!nouvelleCarte ? 'actif' : ''} onClick={() => changer(() => setNouvelleCarte(false))}>Ajouter à la carte actuelle</button>
+      </div>
+      {nouvelleCarte ? (
+        <p className="aide">
+          <strong>Tous les plats actuels absents de la liste sont mis de côté</strong> (entrées, plats, desserts et suppléments).
+          Rien n'est supprimé : ils restent dans « Mis de côté », les fiches et devis qui les ont les gardent, et un plat
+          repris dans la nouvelle carte revient avec son prix.
+        </p>
+      ) : <p className="aide">Les produits collés s'ajoutent ; rien n'est mis de côté.</p>}
       <p className="aide">
         Coller la carte telle quelle ou une ligne par produit. Les intertitres (« Entrées », « Plats », « Desserts », « Suppléments »)
         donnent le type des lignes qui suivent ; le prix TVA comprise peut être en fin de ligne (« … 14,50 € ») ou après
@@ -99,24 +111,14 @@ export default function AjouterListe({ apresImport }: { apresImport: () => void 
           <input type="checkbox" checked={remplacer} onChange={(e) => { const v = e.target.checked; changer(() => setRemplacer(v)) }} />
           {' '}Remplacer les prix déjà saisis quand la liste en donne un autre
         </label>
-        <label className="case">
-          <input type="checkbox" checked={nouvelleCarte} onChange={(e) => { const v = e.target.checked; changer(() => setNouvelleCarte(v)) }} />
-          {' '}C'est la nouvelle carte : retirer les produits absents de la liste
-        </label>
         <button type="button" className="principal" disabled={action.enCours || !texte.trim()} onClick={voirApercu}>Voir l'aperçu</button>
       </div>
-      {nouvelleCarte && (
-        <p className="aide">
-          Seulement dans les types présents dans la liste : coller les seuls desserts ne retire ni les entrées ni les plats.
-          Un produit retiré reste sur les fiches et devis qui l'ont déjà ; il peut être remis sur la carte à tout moment.
-        </p>
-      )}
       <Erreur message={action.erreur} />
 
       {fait && (
         <div className="bandeau info">
           Importé : {fait.resume.creer} nouveau(x) produit(s), {fait.resume.completer_prix + fait.resume.remplacer_prix} prix
-          mis à jour, {fait.resume.reactiver} réactivé(s){fait.resume.desactiver > 0 && `, ${fait.resume.desactiver} retiré(s) de la carte`}.
+          mis à jour, {fait.resume.reactiver} réactivé(s){fait.resume.desactiver > 0 && `, ${fait.resume.desactiver} ancien(s) mis de côté`}.
           {fait.resume.erreur > 0 && ` ${fait.resume.erreur} ligne(s) ignorée(s).`}
           {fait.lignes.some((l) => l.action === 'creer' && !l.prix) && ' Les produits sans prix sont dans « Prix manquants ».'}
         </div>
