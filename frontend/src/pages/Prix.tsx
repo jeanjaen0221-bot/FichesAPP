@@ -43,6 +43,9 @@ export default function Prix() {
   // « Compléter le prix » d'un devis sur un plat : c'est dans la Carte.
   const cibleCarte = cible && produits?.find((p) => p.id === cible && CARTE.includes(p.categorie))
   const nbManquants = produits?.filter((p) => p.prix_manquant && p.actif).length ?? 0
+  const manquantsPar = (categories: string | string[]) =>
+    produits?.filter((p) => p.prix_manquant && p.actif && ([] as string[]).concat(categories).includes(p.categorie)).length ?? 0
+  const nbManquantsCarte = manquantsPar(CARTE)
   const visibles = (produits ?? []).filter((p) =>
     (manquants ? p.prix_manquant && p.actif : onglet.split(',').includes(p.categorie)) &&
     (!q || p.nom.toLowerCase().includes(q.toLowerCase())))
@@ -78,10 +81,16 @@ export default function Prix() {
       </EnTete>
       {!peutModifier && <div className="bandeau info">Lecture seule : seuls les administrateurs (ou le droit « prix ») modifient les prix.</div>}
       <Erreur message={erreur || action.erreur} />
-      {!manquants && <p className="aide">Les entrées, plats, desserts et suppléments sont dans le menu <Link to="/carte">Carte</Link>.</p>}
+      {manquants && <p className="aide">Tous les produits sans prix, d'où qu'ils viennent. Les entrées, plats, desserts et suppléments sont rangés dans le menu <Link to="/carte">Carte</Link>, pas dans les onglets ci-dessous : le lien de chaque ligne mène à sa liste. Le prix peut aussi être complété directement ici.</p>}
+      {!manquants && (
+        <p className="aide">
+          Les entrées, plats, desserts et suppléments sont dans le menu <Link to="/carte">Carte</Link>
+          {nbManquantsCarte > 0 && <span className="texte-alerte"> ({nbManquantsCarte} sans prix)</span>}.
+        </p>
+      )}
       {!manquants && (
         <div className="onglets">
-          {ONGLETS.map((o) => <button key={o.cle} className={onglet === o.cle ? 'actif' : ''} onClick={() => setOnglet(o.cle)}>{o.libelle}</button>)}
+          {ONGLETS.map((o) => <button key={o.cle} className={onglet === o.cle ? 'actif' : ''} onClick={() => setOnglet(o.cle)}>{o.libelle}{manquantsPar(o.cle) > 0 && <span className="texte-alerte"> ({manquantsPar(o.cle)} sans prix)</span>}</button>)}
         </div>
       )}
       <div className="filtres"><input placeholder="Filtrer par nom…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
@@ -96,7 +105,12 @@ export default function Prix() {
                     ? <input defaultValue={p.nom} key={p.nom} onBlur={(e) => e.target.value.trim() !== p.nom && enregistrer(p, { nom: e.target.value })} />
                     : p.nom}
                 </td>
-                <td>{NOMS_CATEGORIES[p.categorie]}</td>
+                <td>
+                  {!manquants ? NOMS_CATEGORIES[p.categorie]
+                    : CARTE.includes(p.categorie)
+                      ? <>{NOMS_CATEGORIES[p.categorie]} · <Link to={`/carte?produit=${p.id}`}>voir dans la Carte</Link></>
+                      : <>{NOMS_CATEGORIES[p.categorie]} · <Link to={`/prix?produit=${p.id}`}>voir dans {ONGLETS.find((o) => o.cle === p.categorie)?.libelle ?? 'sa liste'}</Link></>}
+                </td>
                 <td>
                   {peutModifier ? (
                     <select value={p.unite} onChange={(e) => enregistrer(p, { unite: e.target.value })}>

@@ -69,7 +69,12 @@ export default function Carte() {
         const visibles = tous.filter((p) => (voirRetires || p.actif) && (!q || p.nom.toLowerCase().includes(q.toLowerCase())))
         return (
           <section className="carte" key={s.cle}>
-            <h2>{s.titre} <span className="muet">({tous.filter((p) => p.actif).length})</span></h2>
+            <h2>
+              {s.titre} <span className="muet">({tous.filter((p) => p.actif).length})</span>
+              {tous.some((p) => p.actif && p.prix_manquant) && (
+                <span className="texte-alerte"> · {tous.filter((p) => p.actif && p.prix_manquant).length} sans prix</span>
+              )}
+            </h2>
             {s.aide && <p className="aide">{s.aide}</p>}
             {visibles.length > 0 ? (
               <table className="tableau">
