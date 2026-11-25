@@ -31,7 +31,7 @@ export default function Carte() {
   const trouve = (p: Produit) => !q || p.nom.toLowerCase().includes(q.toLowerCase())
   const deCote = carte.filter((p) => !p.actif)
   const deCoteVisibles = deCote.filter(trouve)
-  const nbActifs = carte.length - deCote.length
+  const nbActifs = carte.filter((p) => p.actif && p.categorie !== 'supplement').length
 
   // Arrivée depuis « Compléter le prix » d'un devis : montrer la ligne, même mise de côté.
   useEffect(() => {
@@ -46,9 +46,13 @@ export default function Carte() {
     if (r) { setDonnees((liste) => liste?.map((x) => (x.id === r.id ? r : x)) ?? null); apresChangement() }
   }
   const toutMettreDeCote = async () => {
-    if (!window.confirm(`Mettre de côté les ${nbActifs} produits de la carte actuelle ? Rien n'est supprimé : `
+    if (!window.confirm(`Mettre de côté les ${nbActifs} entrées, plats et desserts de la carte actuelle ? Les suppléments restent. Rien n'est supprimé : `
       + 'ils restent dans « Mis de côté » et se remettent sur la carte d\'un clic.')) return
     if (await action.lancer(() => api.post('/api/produits/carte/mettre-de-cote', {}))) { recharger(); apresChangement() }
+  }
+  const toutRemettre = async (categorie: string, titre: string, nombre: number) => {
+    if (!window.confirm(`Remettre les ${nombre} ${titre.toLowerCase()} mis de côté sur la carte ?`)) return
+    if (await action.lancer(() => api.post('/api/produits/carte/remettre', { categorie }))) { recharger(); apresChangement() }
   }
   const supprimer = async (p: Produit) => {
     if (!window.confirm(`Supprimer « ${p.nom} » ? (seulement s'il n'a jamais servi sur une fiche ou un devis)`)) return
@@ -60,7 +64,7 @@ export default function Carte() {
 
   return (
     <>
-      <EnTete titre="Carte" sousTitre="Ce qu'on propose sur les fiches, avec les prix TVA comprise. Quand la carte change : coller la nouvelle carte dans « Changer de carte » en bas de page, l'ancienne est mise de côté toute seule.">
+      <EnTete titre="Carte" sousTitre="Ce qu'on propose sur les fiches, avec les prix TVA comprise. Quand la carte change : coller la nouvelle carte dans « Changer de carte » en bas de page, l'ancienne est mise de côté toute seule (les suppléments restent).">
         {peutModifier && nbActifs > 0 && <button type="button" disabled={action.enCours} onClick={toutMettreDeCote}>Mettre toute la carte de côté</button>}
       </EnTete>
       {!peutModifier && <div className="bandeau info">Lecture seule : seuls les administrateurs (ou le droit « prix ») modifient la carte.</div>}
@@ -81,6 +85,16 @@ export default function Carte() {
               )}
             </h2>
             {s.aide && <p className="aide">{s.aide}</p>}
+            {s.cle === 'supplement' && tous.some((p) => !p.actif) && (
+              <div className="bandeau attention">
+                {tous.filter((p) => !p.actif).length} supplément(s) mis de côté.{' '}
+                {peutModifier && (
+                  <button type="button" disabled={action.enCours} onClick={() => toutRemettre('supplement', 'Suppléments', tous.filter((p) => !p.actif).length)}>
+                    Tout remettre sur la carte
+                  </button>
+                )}
+              </div>
+            )}
             {visibles.length > 0 ? (
               <table className="tableau">
                 <thead><tr><th>Nom</th><th className="droite">Prix TVA comprise</th><th /></tr></thead>
@@ -131,7 +145,17 @@ export default function Carte() {
             Les anciennes cartes. Plus proposés sur les fiches ni comptés dans « Prix manquants » ; les fiches et devis
             qui les ont les gardent. Un plat qui revient se remet d'un clic, ou tout seul s'il est dans la nouvelle carte collée.
           </p>
-          <button type="button" onClick={() => setVoirCote(!voirCote)}>{voirCote ? 'Masquer' : 'Voir'} les produits mis de côté</button>
+          <div className="ligne-champs">
+            <button type="button" onClick={() => setVoirCote(!voirCote)}>{voirCote ? 'Masquer' : 'Voir'} les produits mis de côté</button>
+            {peutModifier && SECTIONS.map((s) => {
+              const n = deCote.filter((p) => p.categorie === s.cle).length
+              return n > 0 && (
+                <button key={s.cle} type="button" disabled={action.enCours} onClick={() => toutRemettre(s.cle, s.titre, n)}>
+                  Remettre les {n} {s.titre.toLowerCase()}
+                </button>
+              )
+            })}
+          </div>
           {voirCote && (deCoteVisibles.length > 0 ? (
             <table className="tableau">
               <thead><tr><th>Nom</th><th>Type</th><th className="droite">Dernier prix</th><th /></tr></thead>

@@ -222,3 +222,25 @@ def test_mettre_toute_la_carte_de_cote_puis_la_reprendre(session, acteur_admin, 
     assert [l["action"] for l in lignes if l["nom"] == "Velouté d'automne"] == ["reactiver"]
     session.refresh(ancien)
     assert ancien.actif is True and ancien.prix_centimes == 900
+
+
+def test_les_supplements_restent_quand_la_carte_change(session, acteur_admin, http_admin):
+    planche = _produit(session, "Planche du chef", "supplement", 1800)
+    plat = _produit(session, "Civet de chevreuil", "plat", 2800)
+    lignes = catalogue.analyser_liste(session, "Entrées\nSoupe 8", nouvelle_carte=True)
+    retires = {l["nom"] for l in lignes if l["action"] == "desactiver"}
+    assert "Civet de chevreuil" in retires and "Planche du chef" not in retires
+    catalogue.mettre_carte_de_cote(session, acteur_admin)
+    session.refresh(planche)
+    session.refresh(plat)
+    assert (planche.actif, plat.actif) == (True, False)
+
+    # Des suppléments mis de côté (ancienne règle) se remettent tous d'un coup.
+    planche.actif = False
+    session.commit()
+    r = http_admin.post("/api/produits/carte/remettre", json={"categorie": "supplement"})
+    assert r.status_code == 200 and r.json()["nombre"] >= 1
+    session.refresh(planche)
+    session.refresh(plat)
+    assert (planche.actif, plat.actif) == (True, False)
+    assert http_admin.post("/api/produits/carte/remettre", json={"categorie": "coupe"}).status_code == 422

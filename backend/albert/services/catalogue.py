@@ -176,6 +176,8 @@ ACTIONS_IMPORT = {
     "erreur": "Ignoré",
     "desactiver": "Mis de côté",
 }
+# Quand la carte change, elle change entièrement… sauf les suppléments, qui restent.
+CATEGORIES_CHANGEANT_AVEC_LA_CARTE = ("entree", "plat", "dessert")
 ACTIONS_ECRITURE = ("creer", "completer_prix", "remplacer_prix", "reactiver", "desactiver")
 
 
@@ -183,9 +185,9 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
                    remplacer_prix: bool = False, nouvelle_carte: bool = False) -> list[dict[str, Any]]:
     """Ce que fera l'import, ligne par ligne.
 
-    `nouvelle_carte` : la liste remplace toute la carte. Les produits de la carte (entrées, plats,
-    desserts, suppléments) absents de la liste sont mis de côté (désactivés) ; ceux qui y figurent
-    restent ou reviennent sur la carte.
+    `nouvelle_carte` : la liste remplace la carte. Les entrées, plats et desserts absents de la
+    liste sont mis de côté (désactivés) ; ceux qui y figurent restent ou reviennent sur la carte.
+    Les suppléments ne changent pas avec la carte : ils restent tous.
     """
     from ..domain.import_carte import lire_liste
 
@@ -238,7 +240,7 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
     if nouvelle_carte:
         presents = {(l["categorie"], cle(l["nom"])) for l in sortie if l["action"] != "erreur"}
         for (categorie, k), p in sorted(existants.items(), key=lambda e: (e[0][0], e[1].ordre, e[1].nom)):
-            if p.actif and (categorie, k) not in presents:
+            if categorie in CATEGORIES_CHANGEANT_AVEC_LA_CARTE and p.actif and (categorie, k) not in presents:
                 sortie.append({
                     "numero": None, "texte": "", "nom": p.nom, "categorie": categorie, "prix_centimes": p.prix_centimes,
                     "prix": None, "produit_id": str(p.id), "prix_actuel": format_euros(p.prix_centimes),
@@ -249,15 +251,34 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
 
 
 def mettre_carte_de_cote(session: Session, acteur: Acteur) -> int:
-    """Met de côté (désactive) tous les produits de la carte. Rien n'est supprimé : chacun peut être remis."""
+    """Met de côté (désactive) les entrées, plats et desserts. Les suppléments restent.
+
+    Rien n'est supprimé : chacun peut être remis.
+    """
     acteur.exiger("prix")
     produits = list(session.scalars(select(Produit).where(
-        Produit.categorie.in_(("entree", "plat", "dessert", "supplement")), Produit.actif.is_(True))))
+        Produit.categorie.in_(CATEGORIES_CHANGEANT_AVEC_LA_CARTE), Produit.actif.is_(True))))
     for p in produits:
         p.actif = False
     session.flush()
     journaliser(session, acteur, "produit.modifier", "produit", None,
                 f"Toute la carte mise de côté : {len(produits)} produit(s)")
+    session.commit()
+    return len(produits)
+
+
+def remettre_sur_la_carte(session: Session, acteur: Acteur, categorie: str) -> int:
+    """Remet sur la carte tous les produits mis de côté d'un type (ex. tous les suppléments)."""
+    acteur.exiger("prix")
+    if categorie not in ("entree", "plat", "dessert", "supplement"):
+        raise ErreurMetier("valeur_non_permise", "Type inconnu.", champ="categorie",
+                           valeurs_permises=["entree", "plat", "dessert", "supplement"])
+    produits = list(session.scalars(select(Produit).where(Produit.categorie == categorie, Produit.actif.is_(False))))
+    for p in produits:
+        p.actif = True
+    session.flush()
+    journaliser(session, acteur, "produit.modifier", "produit", None,
+                f"{LIBELLES_CATEGORIES[categorie]} remis sur la carte : {len(produits)} produit(s)")
     session.commit()
     return len(produits)
 
