@@ -160,23 +160,23 @@ def test_api(session, http_admin):
     assert http_admin.post("/api/produits/liste/apercu", json={"texte": " "}).status_code == 422
 
 
-def test_nouvelle_carte_retire_les_absents_du_meme_type(session, acteur_admin):
+def test_nouvelle_carte_met_de_cote_tous_les_absents(session, acteur_admin):
     ancien = _produit(session, "Velouté d'automne", "entree", 900)
     garde = _produit(session, "Carpaccio de bœuf", "entree", 1450)
-    plat = _produit(session, "Civet de chevreuil", "plat", 2800)  # aucun plat dans la liste : on n'y touche pas
+    plat = _produit(session, "Civet de chevreuil", "plat", 2800)  # aucun plat dans la liste : mis de côté aussi
     texte = "Entrées\nCarpaccio de bœuf 14,50\nSoupe de potiron 8,00"
 
     apercu = catalogue.analyser_liste(session, texte, nouvelle_carte=True)
     retires = [l["nom"] for l in apercu if l["action"] == "desactiver"]
-    assert retires == ["Velouté d'automne"]
+    assert {"Velouté d'automne", "Civet de chevreuil"} <= set(retires) and "Carpaccio de bœuf" not in retires
     assert catalogue.analyser_liste(session, texte) == [l for l in apercu if l["action"] != "desactiver"]
 
     catalogue.importer_liste(session, acteur_admin, texte, nouvelle_carte=True)
     for p in (ancien, garde, plat):
         session.refresh(p)
-    assert (ancien.actif, garde.actif, plat.actif) == (False, True, True)
+    assert (ancien.actif, garde.actif, plat.actif) == (False, True, False)
     journal = session.scalars(select(Audit).where(Audit.action == "produit.importer")).one().resume
-    assert "1 retiré(s) de la carte" in journal
+    assert f"{len(retires)} mis de côté" in journal
 
     # Une ligne illisible bloque le remplacement : elle pourrait être un plat à garder.
     with pytest.raises(ErreurMetier) as e:
@@ -201,7 +201,24 @@ def test_supprimer_seulement_si_jamais_utilise(session, acteur_admin, http_admin
     session.expire_all()  # supprimé par une autre session (celle de la requête)
     assert session.get(Produit, faute_id) is None
     r = http_admin.delete(f"/api/produits/{servi.id}")
-    assert r.status_code == 422 and "désactiver" in r.json()["erreur"]["message"]
+    assert r.status_code == 422 and "mettre de côté" in r.json()["erreur"]["message"]
     # Un produit du catalogue de départ lié à une formule ne se supprime pas non plus.
     trois = session.scalars(select(Produit).where(Produit.nom == "3 services")).one()
     assert http_admin.delete(f"/api/produits/{trois.id}").status_code == 422
+
+
+def test_mettre_toute_la_carte_de_cote_puis_la_reprendre(session, acteur_admin, http_admin):
+    ancien = _produit(session, "Velouté d'automne", "entree", 900)
+    plat = _produit(session, "Civet de chevreuil", "plat", None)
+    r = http_admin.post("/api/produits/carte/mettre-de-cote")
+    assert r.status_code == 200, r.text
+    assert r.json()["nombre"] >= 2
+    for p in (ancien, plat):
+        session.refresh(p)
+    assert (ancien.actif, plat.actif) == (False, False)
+    assert plat not in catalogue.lister_produits(session, manquants=True)  # plus dans « Prix manquants »
+    # Un ancien plat repris dans la nouvelle carte revient, avec son prix.
+    lignes = catalogue.importer_liste(session, acteur_admin, "Entrées\nVelouté d'automne", nouvelle_carte=True)
+    assert [l["action"] for l in lignes if l["nom"] == "Velouté d'automne"] == ["reactiver"]
+    session.refresh(ancien)
+    assert ancien.actif is True and ancien.prix_centimes == 900

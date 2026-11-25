@@ -155,7 +155,7 @@ def supprimer_produit(session: Session, acteur: Acteur, produit_id: uuid.UUID) -
     ou = produit_utilise(session, produit.id)
     if ou:
         raise ErreurMetier("regle_metier", f"« {produit.nom} » est déjà utilisé dans {ou} : il ne peut pas être "
-                                           "supprimé. Le retirer de la carte (le désactiver) à la place.")
+                                           "supprimé. Le mettre de côté à la place : il quitte la carte sans être effacé.")
     avant = produit_dict(produit)
     session.delete(produit)
     journaliser(session, acteur, "produit.supprimer", "produit", produit.id, f"{produit.nom} supprimé", avant, None)
@@ -174,7 +174,7 @@ ACTIONS_IMPORT = {
     "inchange": "Déjà sur la carte",
     "prix_different": "Prix différent (gardé)",
     "erreur": "Ignoré",
-    "desactiver": "Retiré de la carte",
+    "desactiver": "Mis de côté",
 }
 ACTIONS_ECRITURE = ("creer", "completer_prix", "remplacer_prix", "reactiver", "desactiver")
 
@@ -183,9 +183,9 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
                    remplacer_prix: bool = False, nouvelle_carte: bool = False) -> list[dict[str, Any]]:
     """Ce que fera l'import, ligne par ligne.
 
-    `nouvelle_carte` : la liste remplace la carte. Les produits actifs absents de la liste sont
-    retirés (désactivés), mais seulement dans les types présents dans la liste : coller les seuls
-    desserts ne retire ni les entrées ni les plats.
+    `nouvelle_carte` : la liste remplace toute la carte. Les produits de la carte (entrées, plats,
+    desserts, suppléments) absents de la liste sont mis de côté (désactivés) ; ceux qui y figurent
+    restent ou reviennent sur la carte.
     """
     from ..domain.import_carte import lire_liste
 
@@ -237,16 +237,29 @@ def analyser_liste(session: Session, texte: str, categorie_defaut: Optional[str]
         sortie.append(ligne)
     if nouvelle_carte:
         presents = {(l["categorie"], cle(l["nom"])) for l in sortie if l["action"] != "erreur"}
-        types = {c for c, _ in presents}
         for (categorie, k), p in sorted(existants.items(), key=lambda e: (e[0][0], e[1].ordre, e[1].nom)):
-            if categorie in types and p.actif and (categorie, k) not in presents:
+            if p.actif and (categorie, k) not in presents:
                 sortie.append({
                     "numero": None, "texte": "", "nom": p.nom, "categorie": categorie, "prix_centimes": p.prix_centimes,
                     "prix": None, "produit_id": str(p.id), "prix_actuel": format_euros(p.prix_centimes),
                     "action": "desactiver", "action_libelle": ACTIONS_IMPORT["desactiver"],
-                    "message": "Absent de la nouvelle carte. Les fiches et devis qui l'ont le gardent.",
+                    "message": "Absent de la nouvelle carte : mis de côté. Les fiches et devis qui l'ont le gardent.",
                 })
     return sortie
+
+
+def mettre_carte_de_cote(session: Session, acteur: Acteur) -> int:
+    """Met de côté (désactive) tous les produits de la carte. Rien n'est supprimé : chacun peut être remis."""
+    acteur.exiger("prix")
+    produits = list(session.scalars(select(Produit).where(
+        Produit.categorie.in_(("entree", "plat", "dessert", "supplement")), Produit.actif.is_(True))))
+    for p in produits:
+        p.actif = False
+    session.flush()
+    journaliser(session, acteur, "produit.modifier", "produit", None,
+                f"Toute la carte mise de côté : {len(produits)} produit(s)")
+    session.commit()
+    return len(produits)
 
 
 def resume_liste(lignes: list[dict[str, Any]]) -> dict[str, int]:
@@ -287,7 +300,7 @@ def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defau
         if l["action"] == "desactiver":
             p.actif = False
             session.flush()
-            journaliser(session, acteur, "produit.modifier", "produit", p.id, f"{p.nom} retiré de la carte — nouvelle carte",
+            journaliser(session, acteur, "produit.modifier", "produit", p.id, f"{p.nom} mis de côté — nouvelle carte",
                         avant, produit_dict(p))
             continue
         if l["action"] in ("completer_prix", "remplacer_prix"):
@@ -305,7 +318,7 @@ def importer_liste(session: Session, acteur: Acteur, texte: str, categorie_defau
                 f"Liste importée dans le menu Prix : {compte['creer']} nouveau(x), "
                 f"{compte['completer_prix'] + compte['remplacer_prix']} prix, {compte['reactiver']} réactivé(s), "
                 f"{compte['erreur']} ligne(s) ignorée(s)"
-                + (f", {compte['desactiver']} retiré(s) de la carte" if nouvelle_carte else ""))
+                + (f", {compte['desactiver']} mis de côté" if nouvelle_carte else ""))
     session.commit()
     return lignes
 
