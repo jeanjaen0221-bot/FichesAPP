@@ -52,6 +52,33 @@ def test_choix_du_chef_laisse_une_ligne_pour_ecrire(session, acteur_admin):
     assert "Choix du chef :" in "".join(p.extract_text() for p in _pdf(session, fiche, "cuisine"))
 
 
+def _texte_cuisine(session, fiche):
+    from albert.api.routes_metier import _pour_pdf
+
+    contenu = pdf_fiche(_pour_pdf(session, fiches.obtenir(session, fiche.id)), "cuisine")
+    return [p.extract_text() for p in PdfReader(io.BytesIO(contenu)).pages]
+
+
+def test_sharing_par_chatgpt_entree_plat_dessert_sur_la_fiche_cuisine(session, acteur_admin, acteur_chatgpt):
+    """Sharing : le chef compose entrée, plat et dessert ; la fiche cuisine prévoit les trois."""
+    for donnees in ({"formule_repas": "Sharing"},
+                    {"lignes": [{"type": "entree", "libelle": "Chef’s choice, sharingdishes", "quantite": 20}]}):
+        fiche, _ = creer_fiche(session, acteur_chatgpt, nom_client=str(donnees)[:30], **donnees)
+        pages = _texte_cuisine(session, fiche)
+        assert len(pages) == 2  # fiche cuisine + page pâtisserie (il y a un dessert)
+        texte = pages[0]
+        for titre in ("Entrées", "Plats", "Desserts"):
+            assert titre in texte
+        assert texte.count("Choix du chef :") == 3
+        assert "pas de service à table" not in texte
+
+
+def test_brunch_reste_sans_entree_plat_dessert(session, acteur_admin):
+    fiche, _ = creer_fiche(session, acteur_admin, formule_repas="Brunch")
+    (texte,) = _texte_cuisine(session, fiche)
+    assert "pas de service à table" in texte and "Choix du chef" not in texte
+
+
 def test_nom_de_fichier_ascii():
     assert nom_fichier("fiche", "Dvořák / Łukasz") == "fiche_Dvorak_ukasz.pdf"
     nom_fichier("fiche", "Conseil de l’Union européenne").encode("latin-1")
