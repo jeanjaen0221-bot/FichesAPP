@@ -6,6 +6,7 @@ import type { Moi } from './types'
 import Connexion from './pages/Connexion'
 import TableauDeBord from './pages/TableauDeBord'
 import Fiches from './pages/Fiches'
+import ControleFiches from './pages/ControleFiches'
 import FicheEdition from './pages/FicheEdition'
 import Clients from './pages/Clients'
 import ClientDetail from './pages/ClientDetail'
@@ -79,6 +80,7 @@ function Mise() {
         <nav>
           {p.fiches && <Lien vers="/">Tableau de bord</Lien>}
           {p.fiches && <Lien vers="/fiches">Fiches</Lien>}
+          {p.fiches && <Lien vers="/controle">Contrôle des fiches</Lien>}
           {p.fiches && <Lien vers="/clients">Clients</Lien>}
           {p.fiches && <Lien vers="/devis">Devis</Lien>}
           {p.fiches && <Lien vers="/bons">Bons pour facturation</Lien>}
@@ -104,6 +106,7 @@ function Mise() {
         <Routes>
           {p.fiches && <Route path="/" element={<TableauDeBord />} />}
           {p.fiches && <Route path="/fiches" element={<Fiches />} />}
+          {p.fiches && <Route path="/controle" element={<ControleFiches />} />}
           {p.fiches && <Route path="/fiches/nouvelle" element={<FicheEdition />} />}
           {p.fiches && <Route path="/fiches/:id" element={<FicheEdition />} />}
           {p.fiches && <Route path="/clients" element={<Clients />} />}

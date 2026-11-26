@@ -76,6 +76,15 @@ def lister_fiches(q: Optional[str] = None, client_id: Optional[str] = None, jour
     return [fiches.fiche_dict(session, f, complet=False) for f in liste]
 
 
+@router.get("/fiches/controle")
+def controler_fiches(jours: int = 60, acteur: Acteur = Depends(acteur_connecte), session: Session = Depends(session_db)):
+    """Fiches à venir à corriger ou à vérifier (rien n'est modifié)."""
+    from ..services import controle
+
+    acteur.exiger("fiches")
+    return controle.controler(session, max(1, min(jours, 365)))
+
+
 @router.post("/fiches", status_code=201)
 def creer_fiche(donnees: dict = Body(...), acteur: Acteur = Depends(acteur_connecte),
                 session: Session = Depends(session_db)):
