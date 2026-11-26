@@ -94,6 +94,30 @@ def est_choix_du_chef(libelle: Optional[str]) -> bool:
     return bool(_CHOIX_DU_CHEF.search(str(libelle or "").replace("’", "'")))
 
 
+_SHARING = re.compile(r"sharing|partage", re.IGNORECASE)
+
+
+def lignes_par_type(fiche: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Lignes de la fiche imprimée, par type.
+
+    Sharing (formule « Sharing » ou ligne « Chef's choice ») : le chef compose une entrée, un plat
+    et un dessert plus tard. Chaque type sans ligne reçoit donc une ligne « choix du chef » (autant
+    que de couverts, ou que la ligne Chef's choice), avec la place pour écrire à la main.
+    """
+    par_type = {t: [l for l in fiche["lignes"] if l["type"] == t] for t in ("entree", "plat", "dessert", "supplement")}
+    choix = next((l for l in fiche["lignes"] if est_choix_du_chef(l["libelle"])), None)
+    formule = str(fiche.get("formule_repas") or "")
+    sharing = choix is not None or (fiche.get("formule_sans_plats") and bool(_SHARING.search(formule)))
+    if sharing:
+        quantite = choix["quantite"] if choix else fiche["couverts"]
+        libelle = choix["libelle"] if choix else f"{formule} — choix du chef"
+        for t in ("entree", "plat", "dessert"):
+            if not par_type[t]:
+                par_type[t] = [{"type": t, "libelle": libelle, "quantite": quantite, "commentaire": None,
+                                "choix_du_chef": True}]
+    return par_type
+
+
 def bloc_notes(texte: Optional[str], style: ParagraphStyle) -> Paragraph:
     """Notes encadrées. Une cellule de tableau ne se coupe pas d'une page à l'autre : des
     notes plus hautes qu'une page faisaient échouer le PDF (LayoutError), et des notes
@@ -149,7 +173,7 @@ def _table_plats(titre: str, lignes: list[dict[str, Any]], st: dict[str, Paragra
         commentaire = commentaire_imprime(l.get("commentaire"))
         if commentaire:
             texte += f"<br/><font size=8.5 color='#6b7280'>{echapper(commentaire)}</font>"
-        if est_choix_du_chef(l["libelle"]):
+        if l.get("choix_du_chef") or est_choix_du_chef(l["libelle"]):
             texte += f"<br/><br/><font color='#9ca3af'>{LIGNE_CHOIX_DU_CHEF}</font><br/>"
         data.append([str(l["quantite"]), Paragraph(texte, st["texte"])])
     t = Table(data, colWidths=[1.6 * cm, None])
@@ -211,8 +235,8 @@ def _page_fiche(fiche: dict[str, Any], st: dict[str, ParagraphStyle], cuisine: b
         infos.append(("Contact sur place", contact))
     histoire += [_table_infos(infos, st), Spacer(1, 8)]
 
-    par_type = {t: [l for l in fiche["lignes"] if l["type"] == t] for t in ("entree", "plat", "dessert", "supplement")}
-    if fiche.get("formule_sans_plats"):
+    par_type = lignes_par_type(fiche)
+    if fiche.get("formule_sans_plats") and not any(par_type[t] for t in ("entree", "plat", "dessert")):
         histoire.append(Paragraph(f"<b>{echapper(fiche['formule_repas'])}</b> : pas de service à table "
                                   "(voir les suppléments).", st["texte"]))
         histoire.append(Spacer(1, 8))
@@ -257,7 +281,7 @@ class _PiedFiche(Paragraph):
 
 def _histoire_fiche(fiche: dict[str, Any], variante: str, st: dict[str, ParagraphStyle]) -> list:
     histoire: list = [_PiedFiche(fiche)]
-    a_desserts = any(l["type"] == "dessert" for l in fiche["lignes"])
+    a_desserts = bool(lignes_par_type(fiche)["dessert"])
     pages: list[bool] = []
     if variante in ("salle", "complete"):
         pages.append(False)
